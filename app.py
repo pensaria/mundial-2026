@@ -1,49 +1,46 @@
 import streamlit as st
 
-# Configuración básica de la página
-st.set_page_config(page_title="Mundial 2026 Predictor", page_icon="🏆", layout="centered")
+# Configuración de página con modo ancho
+st.set_page_config(page_title="Mundial 2026", page_icon="⚽", layout="wide")
 
-# Título Principal
-st.title("🏆 Mundial 2026: Juego de Predicciones")
-st.markdown("---")
+# Estilo personalizado con CSS (para que se vea más pro)
+st.markdown("""
+    <style>
+    .main {
+        background-color: #f5f7f9;
+    }
+    .stButton>button {
+        width: 100%;
+        border-radius: 5px;
+        height: 3em;
+        background-color: #007bff;
+        color: white;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-# Mensaje de Bienvenida
-st.write("### ¡Hola, Mariano! ⚽")
-st.info("Esta es tu plataforma oficial del Mundial. Sin límites de usuarios y 100% gratuita.")
+# Título con estilo
+st.title("🏆 PRODE MUNDIAL 2026")
+st.subheader("La plataforma oficial de predicciones de Mariano")
+st.divider()
 
-# Menú lateral para navegar
-st.sidebar.header("Menú del Juego")
-opcion = st.sidebar.selectbox("Selecciona una sección:", 
-                              ["Inicio", "Ver Grupos", "Hacer Predicciones", "Ranking Global"])
+# Columnas para organizar el contenido
+col_izq, col_der = st.columns([1, 2])
 
-if opcion == "Inicio":
-    st.subheader("Próximos Partidos")
-    st.write("Aquí cargaremos el fixture oficial una vez conectemos la base de datos.")
-    st.button("Actualizar Resultados")
+with col_izq:
+    st.info("💡 **Dato del día:** Faltan pocos días para el inicio del torneo más grande de la historia.")
+    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Logo_Copa_Mundial_FIFA_2026.svg/1200px-Logo_Copa_Mundial_FIFA_2026.svg.png", width=200)
 
-elif opcion == "Ver Grupos":
-    st.subheader("Grupos del Mundial 2026")
-    st.write("Explora los 12 grupos de 4 equipos cada uno.")
-    # Aquí luego pondremos una tabla bonita con las banderas
-    st.warning("Sección en construcción...")
-
-elif opcion == "Hacer Predicciones":
-    st.subheader("Tu Quiniela / Prode")
-    st.write("Ingresa tus resultados para los partidos de hoy:")
+with col_der:
+    tab1, tab2, tab3 = st.tabs(["📅 Fixture", "📊 Mi Ranking", "⚙️ Ajustes"])
     
-    col1, col2, col3 = st.columns([2, 1, 2])
-    with col1:
-        st.write("**Argentina** 🇦🇷")
-    with col2:
-        goles_a = st.number_input("Goles", min_value=0, step=1, key="arg", label_visibility="collapsed")
-    with col3:
-        st.write("vs  **México** 🇲🇽")
+    with tab1:
+        st.write("### Próximos Partidos")
+        st.write("Pronto verás aquí los partidos reales conectados a Airtable.")
         
-    if st.button("Enviar Predicción"):
-        st.success(f"Predicción guardada: Argentina {goles_a} - México ?")
+    with tab2:
+        st.write("### Tabla de Líderes")
+        st.write("¡Aún no hay puntos registrados!")
 
-elif opcion == "Ranking Global":
-    st.subheader("Tabla de Posiciones")
-    st.write("Mira quién va liderando el juego de puntos.")
-    # Ejemplo de tabla
-    st.table({"Usuario": ["Mariano", "Amigo1", "Amigo2"], "Puntos": [15, 12, 8]})
+    with tab3:
+        st.write("Configuración de perfil de usuario.")
