@@ -1,46 +1,47 @@
 import streamlit as st
+import pandas as pd
+import requests
 
-# Configuración de página con modo ancho
+# Configuración
 st.set_page_config(page_title="Mundial 2026", page_icon="⚽", layout="wide")
 
-# Estilo personalizado con CSS (para que se vea más pro)
-st.markdown("""
-    <style>
-    .main {
-        background-color: #f5f7f9;
-    }
-    .stButton>button {
-        width: 100%;
-        border-radius: 5px;
-        height: 3em;
-        background-color: #007bff;
-        color: white;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+# Función para leer Airtable
+def get_airtable_data(table_name):
+    api_key = st.secrets["airtable"]["api_key"]
+    base_id = st.secrets["airtable"]["base_id"]
+    url = f"https://api.airtable.com/v0/{base_id}/{table_name}"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    response = requests.get(url, headers=headers)
+    return response.json()
 
-# Título con estilo
 st.title("🏆 PRODE MUNDIAL 2026")
-st.subheader("La plataforma oficial de predicciones de Mariano")
 st.divider()
 
-# Columnas para organizar el contenido
 col_izq, col_der = st.columns([1, 2])
 
 with col_izq:
-    st.info("💡 **Dato del día:** Faltan pocos días para el inicio del torneo más grande de la historia.")
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Logo_Copa_Mundial_FIFA_2026.svg/1200px-Logo_Copa_Mundial_FIFA_2026.svg.png", width=200)
+    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Logo_Copa_Mundial_FIFA_2026.svg/800px-Logo_Copa_Mundial_FIFA_2026.svg.png", width=250)
+    if st.button("🔄 Actualizar Datos"):
+        st.rerun()
 
 with col_der:
-    tab1, tab2, tab3 = st.tabs(["📅 Fixture", "📊 Mi Ranking", "⚙️ Ajustes"])
+    tab1, tab2 = st.tabs(["📅 Equipos", "📊 Mi Ranking"])
     
     with tab1:
-        st.write("### Próximos Partidos")
-        st.write("Pronto verás aquí los partidos reales conectados a Airtable.")
-        
-    with tab2:
-        st.write("### Tabla de Líderes")
-        st.write("¡Aún no hay puntos registrados!")
+        st.write("### Equipos en la Base de Datos")
+        try:
+            data = get_airtable_data("Equipos") # Aquí usa el nombre exacto de tu tabla
+            records = data.get('records', [])
+            if records:
+                # Extraemos solo los nombres para mostrar
+                nombres = [r['fields'].get('Nombre', 'Sin nombre') for r in records]
+                st.write(f"Se encontraron {len(nombres)} equipos:")
+                st.table(nombres)
+            else:
+                st.warning("La tabla está vacía. ¡Agrega países en Airtable!")
+        except Exception as e:
+            st.error("Error de conexión. Revisa tus Secrets.")
 
-    with tab3:
-        st.write("Configuración de perfil de usuario.")
+    with tab2:
+        st.write("### Ranking")
+        st.info("Próximamente...")
