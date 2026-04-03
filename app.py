@@ -1,47 +1,51 @@
 import streamlit as st
-import pandas as pd
 import requests
 
-# Configuración
 st.set_page_config(page_title="Mundial 2026", page_icon="⚽", layout="wide")
 
-# Función para leer Airtable
-def get_airtable_data(table_name):
+# Función para traer datos ordenados
+def get_equipos():
     api_key = st.secrets["airtable"]["api_key"]
     base_id = st.secrets["airtable"]["base_id"]
-    url = f"https://api.airtable.com/v0/{base_id}/{table_name}"
+    # Pedimos a Airtable que ordene por Grupo y luego por Posición
+    url = f"https://api.airtable.com/v0/{base_id}/Equipos?sort[0][field]=Grupo&sort[0][direction]=asc&sort[1][field]=Posición&sort[1][direction]=asc"
     headers = {"Authorization": f"Bearer {api_key}"}
-    response = requests.get(url, headers=headers)
-    return response.json()
+    return requests.get(url, headers=headers).json()
 
-st.title("🏆 PRODE MUNDIAL 2026")
-st.divider()
+st.title("🏆 Grupos Oficiales - Mundial 2026")
 
-col_izq, col_der = st.columns([1, 2])
+try:
+    data = get_equipos()
+    records = data.get('records', [])
 
-with col_izq:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Logo_Copa_Mundial_FIFA_2026.svg/800px-Logo_Copa_Mundial_FIFA_2026.svg.png", width=250)
-    if st.button("🔄 Actualizar Datos"):
-        st.rerun()
+    if records:
+        # Agrupamos por letra de grupo para la visualización
+        grupos = {}
+        for r in records:
+            f = r['fields']
+            g = f.get('Grupo', 'Sin Grupo')
+            if g not in grupos: grupos[g] = []
+            grupos[g].append(f)
 
-with col_der:
-    tab1, tab2 = st.tabs(["📅 Equipos", "📊 Mi Ranking"])
-    
-    with tab1:
-        st.write("### Equipos en la Base de Datos")
-        try:
-            data = get_airtable_data("Equipos") # Aquí usa el nombre exacto de tu tabla
-            records = data.get('records', [])
-            if records:
-                # Extraemos solo los nombres para mostrar
-                nombres = [r['fields'].get('Nombre', 'Sin nombre') for r in records]
-                st.write(f"Se encontraron {len(nombres)} equipos:")
-                st.table(nombres)
-            else:
-                st.warning("La tabla está vacía. ¡Agrega países en Airtable!")
-        except Exception as e:
-            st.error("Error de conexión. Revisa tus Secrets.")
-
-    with tab2:
-        st.write("### Ranking")
-        st.info("Próximamente...")
+        # Crear filas de 3 grupos para que se vea ordenado
+        keys = sorted(grupos.keys())
+        for i in range(0, len(keys), 3):
+            cols = st.columns(3)
+            for j in range(3):
+                if i + j < len(keys):
+                    letra = keys[i+j]
+                    with cols[j]:
+                        st.subheader(f"Grupo {letra}")
+                        for eq in grupos[letra]:
+                            # Intentar sacar la URL de la bandera si existe
+                            bandera_url = eq.get('Bandera')[0]['url'] if eq.get('Bandera') else "https://via.placeholder.com/30"
+                            col_icon, col_name = st.columns([0.2, 0.8])
+                            with col_icon:
+                                st.image(bandera_url, width=30)
+                            with col_name:
+                                st.write(f"**{eq.get('Nombre')}**")
+                        st.divider()
+    else:
+        st.warning("No hay datos.")
+except Exception as e:
+    st.error(f"Error visualizando: {e}")
