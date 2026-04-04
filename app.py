@@ -4,11 +4,9 @@ from streamlit_google_auth import Authenticate
 # 1. Configuración de la página (DEBE SER LA PRIMERA LÍNEA DE STREAMLIT)
 st.set_page_config(page_title="Mundial 2026", page_icon="⚽", layout="wide")
 
-# 2. Inicialización del Autenticador
-# Extraemos los datos de st.secrets (asegúrate de que los nombres coincidan con tus Secrets)
+# 2. Inicialización del Autenticador (Ajustado para evitar el error TypeError)
 try:
     authenticator = Authenticate(
-        secret_key="mundial2026_prod_key",
         client_id=st.secrets["google_oauth"]["client_id"],
         client_secret=st.secrets["google_oauth"]["client_secret"],
         redirect_uri=st.secrets["google_oauth"]["redirect_uri"],
@@ -27,15 +25,17 @@ if st.session_state.get('connected'):
     user_info = st.session_state.get('user_info')
     
     # Barra lateral con info del usuario
-    st.sidebar.image(user_info.get('picture'), width=50)
-    st.sidebar.write(f"Hola, **{user_info.get('name')}**")
+    if user_info and user_info.get('picture'):
+        st.sidebar.image(user_info.get('picture'), width=50)
+    
+    st.sidebar.write(f"Hola, **{user_info.get('name') if user_info else 'Usuario'}**")
     
     if st.sidebar.button("Cerrar Sesión"):
         authenticator.logout()
 
     # Contenido Principal
     st.title("🏆 Prode Mundial 2026")
-    st.subheader(f"¡Bienvenido, {user_info.get('given_name')}!")
+    st.subheader(f"¡Bienvenido, {user_info.get('given_name') if user_info else ''}!")
     
     st.markdown("---")
     
