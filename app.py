@@ -1,51 +1,47 @@
 import streamlit as st
-import requests
-from datetime import datetime
+from streamlit_google_auth import Authenticate
 
-# Configuración de página
-st.set_page_config(page_title="Mundial 2026 - El Juego", page_icon="🏆", layout="centered")
+# Configuración inicial
+st.set_page_config(page_title="Mundial 2026", page_icon="⚽", layout="wide")
 
-# --- LÓGICA DE TIEMPO (Horario de Sofía) ---
-# Fecha límite Fecha 1: 11 de Junio a las 16:00
-deadline_f1 = datetime(2026, 6, 11, 16, 0)
-ahora = datetime.now() # Streamlit Cloud suele usar UTC, luego ajustaremos el offset
+# --- CONFIGURACIÓN DE AUTH ---
+# Usamos los secrets que pegaste en Streamlit Cloud
+authenticator = Authenticate(
+    secret_key="una_clave_aleatoria_cualquiera", # Esto es para la cookie interna
+    client_id=st.secrets["google_oauth"]["client_id"],
+    client_secret=st.secrets["google_oauth"]["client_secret"],
+    redirect_uri=st.secrets["google_oauth"]["redirect_uri"],
+    cookie_name="mundial_auth_cookie",
+)
 
-# --- INTERFAZ DE BIENVENIDA ---
-st.image("https://upload.wikimedia.org/wikipedia/en/6/67/2026_FIFA_World_Cup_logo.svg", width=200)
-st.title("¡Bienvenido al Prode Mundial 2026!")
-st.subheader("Demuestra que eres el que más sabe de fútbol")
+# Renderizar el botón de Login o capturar la sesión
+authenticator.check_authenticator()
 
-st.markdown("""
----
-### 🎮 Elige tu modalidad de juego:
-""")
+if st.session_state.get('connected'):
+    # --- USUARIO LOGUEADO ---
+    user_info = st.session_state.get('user_info')
+    st.sidebar.image(user_info.get('picture'), width=50)
+    st.sidebar.write(f"Hola, **{user_info.get('name')}**")
+    
+    if st.sidebar.button("Cerrar Sesión"):
+        authenticator.logout()
 
-col1, col2 = st.columns(2)
+    # Aquí va tu menú principal
+    st.title("🏆 Prode Mundial 2026")
+    st.subheader("¡Ya estás dentro!")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Fixture Simple", use_container_width=True):
+            st.write("Cargando partidos M1 al M24...")
+            # Aquí llamaremos a la lógica de los partidos que cargaste
+    with col2:
+        st.button("Fixture Complejo", disabled=True, use_container_width=True)
 
-with col1:
-    if st.button("🏆 FIXTURE SIMPLE", use_container_width=True):
-        st.session_state.modo = "simple"
-        st.rerun()
-    st.info("Predice Podio, Sorpresa, Decepción y resultados por fecha.")
-
-with col2:
-    st.button("🃏 FIXTURE COMPLEJO (Gran DT)", use_container_width=True, disabled=True)
-    st.caption("Próximamente: Arma tu equipo con presupuesto real.")
-
-# --- MOSTRAR ESTADO DEL CIERRE ---
-if ahora < deadline_f1:
-    faltan = deadline_f1 - ahora
-    st.warning(f"⏳ **¡Atención!** Faltan {faltan.days} días y {faltan.seconds//3600} horas para el cierre de predicciones de la Fecha 1.")
 else:
-    st.error("🚫 Las predicciones para la Fecha 1 y el Podio están CERRADAS.")
-
-# --- FOOTER INFORMATIVO ---
-with st.expander("ℹ️ Ver Reglas de Puntuación"):
-    st.write("""
-    - **Ganador/Empate:** 2 pts
-    - **Resultado Exacto:** 5 pts
-    - **Campeón:** 10 pts (2 pts si llega a la final)
-    - **Subcampeón:** 7 pts (2 pts si gana la final)
-    - **3er Puesto:** 6 pts (2 pts si llega a la final)
-    - **Sorpresa/Decepción:** 4 pts c/u
-    """)
+    # --- PANTALLA DE BIENVENIDA (SIN LOGUEAR) ---
+    st.title("⚽ Bienvenido al Prode Mundial 2026")
+    st.write("Para guardar tus predicciones y competir con tus amigos, por favor inicia sesión.")
+    
+    # El botón de Google
+    authenticator.login()
