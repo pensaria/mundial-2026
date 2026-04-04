@@ -1,58 +1,51 @@
 import streamlit as st
 import requests
+from datetime import datetime
 
-st.set_page_config(page_title="Mundial 2026 - Grupos", page_icon="⚽", layout="wide")
+# Configuración de página
+st.set_page_config(page_title="Mundial 2026 - El Juego", page_icon="🏆", layout="centered")
 
-# Función optimizada para traer datos ORDENADOS
-def get_datos_ordenados():
-    api_key = st.secrets["airtable"]["api_key"]
-    base_id = st.secrets["airtable"]["base_id"]
-    # Ordenamos por Grupo (A-L) y por Posición (1-4)
-    url = f"https://api.airtable.com/v0/{base_id}/Equipos?sort[0][field]=Grupo&sort[0][direction]=asc&sort[1][field]=Posición&sort[1][direction]=asc"
-    headers = {"Authorization": f"Bearer {api_key}"}
-    return requests.get(url, headers=headers).json()
+# --- LÓGICA DE TIEMPO (Horario de Sofía) ---
+# Fecha límite Fecha 1: 11 de Junio a las 16:00
+deadline_f1 = datetime(2026, 6, 11, 16, 0)
+ahora = datetime.now() # Streamlit Cloud suele usar UTC, luego ajustaremos el offset
 
-st.title("🏆 Fase de Grupos - Oficial")
-st.write("Consulta la conformación de los grupos del Mundial 2026.")
+# --- INTERFAZ DE BIENVENIDA ---
+st.image("https://upload.wikimedia.org/wikipedia/en/6/67/2026_FIFA_World_Cup_logo.svg", width=200)
+st.title("¡Bienvenido al Prode Mundial 2026!")
+st.subheader("Demuestra que eres el que más sabe de fútbol")
 
-try:
-    data = get_datos_ordenados()
-    records = data.get('records', [])
+st.markdown("""
+---
+### 🎮 Elige tu modalidad de juego:
+""")
 
-    if records:
-        # 1. Organizamos los datos en un diccionario de Grupos
-        dict_grupos = {}
-        for r in records:
-            f = r['fields']
-            letra = f.get('Grupo', '?')
-            if letra not in dict_grupos:
-                dict_grupos[letra] = []
-            dict_grupos[letra].append(f)
+col1, col2 = st.columns(2)
 
-        # 2. Dibujamos los grupos de 3 en 3 (para PC)
-        letras_ordenadas = sorted(dict_grupos.keys())
-        for i in range(0, len(letras_ordenadas), 3):
-            cols = st.columns(3) # Esto se vuelve 1 columna en móvil automáticamente
-            for j in range(3):
-                if i + j < len(letras_ordenadas):
-                    letra_actual = letras_ordenadas[i + j]
-                    with cols[j]:
-                        st.markdown(f"### Grupo {letra_actual}")
-                        # Contenedor para cada grupo
-                        with st.container(border=True):
-                            for equipo in dict_grupos[letra_actual]:
-                                # Lógica de la bandera
-                                img_url = equipo.get('Bandera')[0]['url'] if equipo.get('Bandera') else "https://via.placeholder.com/30"
-                                c1, c2 = st.columns([0.2, 0.8])
-                                with c1:
-                                    st.image(img_url, width=30)
-                                with c2:
-                                    # Mostramos posición y nombre
-                                    st.write(f"**{equipo.get('Nombre')}**")
-    else:
-        st.info("Cargando datos desde Airtable...")
-except Exception as e:
-    st.error(f"Hubo un problema al conectar: {e}")
+with col1:
+    if st.button("🏆 FIXTURE SIMPLE", use_container_width=True):
+        st.session_state.modo = "simple"
+        st.rerun()
+    st.info("Predice Podio, Sorpresa, Decepción y resultados por fecha.")
 
-st.sidebar.markdown("---")
-st.sidebar.button("Ir a Predicciones (Próximamente)")
+with col2:
+    st.button("🃏 FIXTURE COMPLEJO (Gran DT)", use_container_width=True, disabled=True)
+    st.caption("Próximamente: Arma tu equipo con presupuesto real.")
+
+# --- MOSTRAR ESTADO DEL CIERRE ---
+if ahora < deadline_f1:
+    faltan = deadline_f1 - ahora
+    st.warning(f"⏳ **¡Atención!** Faltan {faltan.days} días y {faltan.seconds//3600} horas para el cierre de predicciones de la Fecha 1.")
+else:
+    st.error("🚫 Las predicciones para la Fecha 1 y el Podio están CERRADAS.")
+
+# --- FOOTER INFORMATIVO ---
+with st.expander("ℹ️ Ver Reglas de Puntuación"):
+    st.write("""
+    - **Ganador/Empate:** 2 pts
+    - **Resultado Exacto:** 5 pts
+    - **Campeón:** 10 pts (2 pts si llega a la final)
+    - **Subcampeón:** 7 pts (2 pts si gana la final)
+    - **3er Puesto:** 6 pts (2 pts si llega a la final)
+    - **Sorpresa/Decepción:** 4 pts c/u
+    """)
