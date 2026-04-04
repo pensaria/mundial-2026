@@ -1,59 +1,58 @@
 import streamlit as st
-from streamlit_google_auth import Authenticate
+import requests
 
-# 1. Configuración de la página (DEBE SER LA PRIMERA LÍNEA DE STREAMLIT)
+# 1. Configuración de la página
 st.set_page_config(page_title="Mundial 2026", page_icon="⚽", layout="wide")
 
-# 2. Inicialización del Autenticador (Ajustado para evitar el error TypeError)
-try:
-    authenticator = Authenticate(
-        client_id=st.secrets["google_oauth"]["client_id"],
-        client_secret=st.secrets["google_oauth"]["client_secret"],
-        redirect_uri=st.secrets["google_oauth"]["redirect_uri"],
-        cookie_name="mundial_auth_cookie"
-    )
-except Exception as e:
-    st.error(f"Error cargando los Secrets: {e}")
-    st.stop()
+# 2. Función para mostrar el botón de Google (Manual)
+def login_google():
+    client_id = st.secrets["google_oauth"]["client_id"]
+    redirect_uri = st.secrets["google_oauth"]["redirect_uri"]
+    scope = "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile"
+    
+    # URL de Google para iniciar sesión
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&scope={scope}&access_type=offline&prompt=select_account"
+    
+    st.markdown(f"""
+        <a href="{auth_url}" target="_self" style="text-decoration: none;">
+            <div style="background-color: white; color: #757575; border: 1px solid #dadce0; border-radius: 4px; padding: 10px 24px; font-family: 'Roboto',arial,sans-serif; font-size: 14px; font-weight: 500; display: inline-flex; align-items: center; cursor: pointer;">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google__G__Logo.svg" width="18px" style="margin-right: 10px;">
+                Iniciar sesión con Google
+            </div>
+        </a>
+    """, unsafe_allow_html=True)
 
-# 3. Verificación de la sesión
-authenticator.check_authenticator()
+# 3. Lógica de Navegación
+if "connected" not in st.session_state:
+    st.session_state.connected = False
 
-# 4. Lógica de Pantallas
-if st.session_state.get('connected'):
-    # --- VISTA: USUARIO LOGUEADO ---
-    user_info = st.session_state.get('user_info')
-    
-    # Barra lateral con info del usuario
-    if user_info and user_info.get('picture'):
-        st.sidebar.image(user_info.get('picture'), width=50)
-    
-    st.sidebar.write(f"Hola, **{user_info.get('name') if user_info else 'Usuario'}**")
-    
+# Capturar el código que devuelve Google (si existe en la URL)
+query_params = st.query_params
+if "code" in query_params and not st.session_state.connected:
+    # Aquí es donde el usuario vuelve de Google
+    st.session_state.connected = True
+    st.success("¡Sesión iniciada correctamente!")
+    st.rerun()
+
+# 4. Pantallas
+if st.session_state.connected:
+    st.sidebar.write("✅ Conectado")
     if st.sidebar.button("Cerrar Sesión"):
-        authenticator.logout()
+        st.session_state.connected = False
+        st.rerun()
 
-    # Contenido Principal
     st.title("🏆 Prode Mundial 2026")
-    st.subheader(f"¡Bienvenido, {user_info.get('given_name') if user_info else ''}!")
-    
-    st.markdown("---")
+    st.subheader("¡Bienvenido al sistema!")
     
     col1, col2 = st.columns(2)
     with col1:
         if st.button("📝 Ir al Fixture Simple", use_container_width=True):
-            st.info("Cargando los partidos M1 al M24 que configuraste...")
-            # Aquí vendrá la lógica para mostrar los partidos de Airtable
-            
+            st.info("Cargando partidos de Airtable...")
     with col2:
-        st.button("🃏 Fixture Complejo (Próximamente)", disabled=True, use_container_width=True)
+        st.button("🃏 Fixture Complejo (Próximamente)", disabled=True)
 
 else:
-    # --- VISTA: PANTALLA DE BIENVENIDA (SIN LOGUEAR) ---
     st.title("⚽ Prode Mundial 2026")
-    st.write("Predice los resultados, arma tu podio y compite por el primer lugar.")
-    
-    st.info("Para participar, por favor inicia sesión con tu cuenta de Google.")
-    
-    # Renderiza el botón oficial de Google
-    authenticator.login()
+    st.write("Predice los resultados y compite con tus amigos.")
+    st.info("Inicia sesión para empezar a jugar.")
+    login_google()
