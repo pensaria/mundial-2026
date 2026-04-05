@@ -8,19 +8,23 @@ st.set_page_config(page_title="Mundial 2026", page_icon="⚽", layout="wide")
 def login_google():
     client_id = st.secrets["google_oauth"]["client_id"]
     redirect_uri = st.secrets["google_oauth"]["redirect_uri"]
-    scope = "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile"
+    # Esta es la URL de autorización de Google
+    base_url = "https://accounts.google.com/o/oauth2/v2/auth"
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "access_type": "offline",
+        "prompt": "select_account"
+    }
     
-    # URL de Google para iniciar sesión
-    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&scope={scope}&access_type=offline&prompt=select_account"
+    # Construimos la URL de forma limpia
+    from urllib.parse import urlencode
+    auth_url = f"{base_url}?{urlencode(params)}"
     
-    st.markdown(f"""
-        <a href="{auth_url}" target="_self" style="text-decoration: none;">
-            <div style="background-color: white; color: #757575; border: 1px solid #dadce0; border-radius: 4px; padding: 10px 24px; font-family: 'Roboto',arial,sans-serif; font-size: 14px; font-weight: 500; display: inline-flex; align-items: center; cursor: pointer;">
-                <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google__G__Logo.svg" width="18px" style="margin-right: 10px;">
-                Iniciar sesión con Google
-            </div>
-        </a>
-    """, unsafe_allow_html=True)
+    # Botón visual
+    st.link_button("Iniciar sesión con Google", auth_url, type="primary")
 
 # 3. Lógica de Navegación
 if "connected" not in st.session_state:
