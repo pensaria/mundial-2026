@@ -30,12 +30,11 @@ def login_google():
 if "connected" not in st.session_state:
     st.session_state.connected = False
 
-# Capturar el código que devuelve Google (si existe en la URL)
-query_params = st.query_params
-if "code" in query_params and not st.session_state.connected:
-    # Aquí es donde el usuario vuelve de Google
+# Capturar si Google nos devolvió el código en la URL
+if "code" in st.query_params:
     st.session_state.connected = True
-    st.success("¡Sesión iniciada correctamente!")
+    # Limpiamos la URL para que no quede el código ahí expuesto
+    st.query_params.clear() 
     st.rerun()
 
 # 4. Pantallas
