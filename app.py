@@ -11,20 +11,17 @@ def login_google():
     client_id = st.secrets["google_oauth"]["client_id"]
     redirect_uri = st.secrets["google_oauth"]["redirect_uri"]
     
-    # URL de Google simplificada (la que nos funcionó)
     base_url = "https://accounts.google.com/o/oauth2/v2/auth"
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": "openid email profile", # Scopes básicos
+        "scope": "openid email profile",
         "access_type": "offline",
         "prompt": "select_account"
     }
     
     auth_url = f"{base_url}?{urlencode(params)}"
-    
-    # Botón visual (Usamos el link_button que es más estable)
     st.link_button("Iniciar sesión con Google", auth_url, type="primary")
 
 def obtener_partidos_airtable():
@@ -60,15 +57,17 @@ if "connected" not in st.session_state:
 if "vista" not in st.session_state:
     st.session_state.vista = "inicio"
 
-# Capturar el código de la URL
 if "code" in st.query_params:
     st.session_state.connected = True
-    # No limpiamos params todavía para asegurar que entre
     
 # --- INTERFAZ ---
 
 if st.session_state.connected:
+    # Barra lateral con Menú de Navegación
     st.sidebar.success("Conectado")
+    
+    menu = st.sidebar.radio("Menú Principal", ["🏠 Inicio", "⚽ Jugar Prode", "📊 Simulador", "🏟️ Sedes y Equipos"])
+    
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.connected = False
         st.session_state.vista = "inicio"
@@ -76,21 +75,54 @@ if st.session_state.connected:
     
     st.title("🏆 Prode Mundial 2026")
 
-    if st.session_state.vista == "inicio":
-        if st.button("📝 Ir al Fixture Simple", use_container_width=True):
-            st.session_state.vista = "fixture"
-            st.rerun()
-    
-    elif st.session_state.vista == "fixture":
-        st.button("⬅️ Volver", on_click=lambda: st.session_state.update({"vista": "inicio"}))
+    # LÓGICA POR SECCIONES
+    if menu == "🏠 Inicio":
+        st.subheader("¡Bienvenido al Prode!")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🥇 Torneo General", use_container_width=True):
+                st.info("Próximamente: Clasificación global de todos los usuarios.")
+        with col2:
+            if st.button("🔒 Torneo Privado", use_container_width=True):
+                st.info("Próximamente: Crea una liga para competir con tus amigos.")
+
+    elif menu == "⚽ Jugar Prode":
+        st.subheader("📝 Tus Predicciones - Jornada 1")
+        st.write("Ingresa tus pronósticos para los partidos de la fase de grupos.")
+        
         partidos = obtener_partidos_airtable()
-        for p in partidos:
-            with st.container(border=True):
-                col = st.columns([1, 4, 1, 4])
-                col[0].caption(p["ID"])
-                col[1].write(p["Local"])
-                col[2].write("vs")
-                col[3].write(p["Visitante"])
+        
+        # Formulario para capturar goles
+        with st.form("form_prode"):
+            for p in partidos:
+                with st.container(border=True):
+                    c1, c2, c3, c4, c5 = st.columns([1, 3, 2, 2, 3])
+                    with c1:
+                        st.caption(p["ID"])
+                    with c2:
+                        st.write(f"**{p['Local']}**")
+                    with c3:
+                        st.number_input("Goles Local", min_value=0, max_value=20, step=1, key=f"local_{p['ID']}", label_visibility="collapsed")
+                    with c4:
+                        st.number_input("Goles Visita", min_value=0, max_value=20, step=1, key=f"visit_{p['ID']}", label_visibility="collapsed")
+                    with c5:
+                        st.write(f"**{p['Visitante']}**")
+            
+            if st.form_submit_button("Guardar Mis Pronósticos", use_container_width=True):
+                st.success("¡Pronósticos enviados! (Esto se conectará a la tabla 'Predicciones')")
+
+    elif menu == "📊 Simulador":
+        st.subheader("📈 Calculador de Resultados")
+        st.write("Juega con los posibles marcadores para ver cómo quedaría el cuadro final.")
+        st.warning("Sección en construcción.")
+
+    elif menu == "🏟️ Sedes y Equipos":
+        tabs = st.tabs(["🌎 Equipos", "🏟️ Estadios"])
+        with tabs[0]:
+            st.write("Aquí verás títulos, mejor participación y planteles.")
+        with tabs[1]:
+            st.write("Información detallada de los estadios en México, USA y Canadá.")
+
 else:
     st.title("⚽ Prode Mundial 2026")
     st.info("Inicia sesión para empezar")
