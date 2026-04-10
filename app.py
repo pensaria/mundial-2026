@@ -42,7 +42,7 @@ def obtener_partidos_airtable():
                     "ID": f.get("ID Partido"),
                     "Local": f.get("Nombre (from Equipo Local)")[0] if isinstance(f.get("Nombre (from Equipo Local)"), list) else f.get("Nombre (from Equipo Local)"),
                     "Visitante": f.get("Nombre (from Equipo Visitante)")[0] if isinstance(f.get("Nombre (from Equipo Visitante)"), list) else f.get("Nombre (from Equipo Visitante)"),
-                    "Airtable_ID": record['id'] # Necesario para vincular la tabla
+                    "Airtable_ID": record['id']
                 })
             return partidos
         return []
@@ -55,11 +55,10 @@ def guardar_predicciones_airtable(predicciones_lista, email_usuario):
         "Authorization": f"Bearer {st.secrets['airtable']['api_key']}",
         "Content-Type": "application/json"
     }
-    
     for pred in predicciones_lista:
         payload = {
             "fields": {
-                "Usuario": email_usuario, # <--- ¡AHORA USA EL EMAIL REAL!
+                "Usuario": email_usuario,
                 "ID Partido": [pred["partido_airtable_id"]],
                 "Goles Local": pred["goles_local"],
                 "Goles Visitante": pred["goles_visitante"]
@@ -71,23 +70,22 @@ def guardar_predicciones_airtable(predicciones_lista, email_usuario):
 def obtener_ranking():
     url = f"https://api.airtable.com/v0/{st.secrets['airtable']['base_id']}/Predicciones"
     headers = {"Authorization": f"Bearer {st.secrets['airtable']['api_key']}"}
-    
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        records = response.json().get('records', [])
-        puntos_por_usuario = {}
-        
-        for r in records:
-            user = r['fields'].get('Usuario')
-            pts = r['fields'].get('Puntos Obtenidos', 0)
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            records = response.json().get('records', [])
+            puntos_por_usuario = {}
+            for r in records:
+                user = r['fields'].get('Usuario')
+                pts = r['fields'].get('Puntos Obtenidos', 0)
+                if user:
+                    puntos_por_usuario[user] = puntos_por_usuario.get(user, 0) + pts
             
-            if user:
-                puntos_por_usuario[user] = puntos_por_usuario.get(user, 0) + pts
-        
-        # Convertir a lista y ordenar de mayor a menor
-        ranking = [{"Usuario": k, "Puntos": v} for k, v in puntos_por_usuario.items()]
-        return sorted(ranking, key=lambda x: x['Puntos'], reverse=True)
-    return []
+            ranking = [{"Usuario": k, "Puntos": v} for k, v in puntos_por_usuario.items()]
+            return sorted(ranking, key=lambda x: x['Puntos'], reverse=True)
+        return []
+    except:
+        return []
 
 # --- LÓGICA DE NAVEGACIÓN ---
 
@@ -98,11 +96,11 @@ if "vista" not in st.session_state:
 
 if "code" in st.query_params:
     st.session_state.connected = True
-    
+
 # --- INTERFAZ ---
 
 if st.session_state.connected:
-    st.sidebar.success("Conectado")
+    st.sidebar.success("✅ Conectado")
     menu = st.sidebar.radio("Menú Principal", ["🏠 Inicio", "⚽ Jugar Prode", "📊 Simulador", "🏟️ Sedes y Equipos"])
     
     if st.sidebar.button("Cerrar Sesión"):
@@ -112,14 +110,26 @@ if st.session_state.connected:
     
     st.title("🏆 Prode Mundial 2026")
 
+    # 1. SECCIÓN INICIO (RANKING)
     if menu == "🏠 Inicio":
-        st.subheader("¡Bienvenido al Prode!")
+        st.subheader("📊 Tabla de Posiciones - Torneo General")
+        
+        with st.spinner("Calculando ranking..."):
+            datos_ranking = obtener_ranking()
+            if datos_ranking:
+                # Mostramos una tabla limpia
+                st.table(datos_ranking)
+            else:
+                st.info("Aún no hay puntos registrados. ¡Sé el primero en jugar!")
+
+        st.divider()
         col1, col2 = st.columns(2)
         with col1:
-            st.button("🥇 Torneo General", use_container_width=True)
+            st.button("🥇 Mi Puesto Detallado", use_container_width=True, disabled=True)
         with col2:
-            st.button("🔒 Torneo Privado", use_container_width=True)
+            st.button("🔒 Torneo Privado", use_container_width=True, disabled=True)
 
+    # 2. SECCIÓN JUGAR
     elif menu == "⚽ Jugar Prode":
         st.subheader("📝 Tus Predicciones - Jornada 1")
         partidos = obtener_partidos_airtable()
@@ -135,7 +145,6 @@ if st.session_state.connected:
                     gv = c4.number_input("V", min_value=0, max_value=20, step=1, key=f"v_{p['ID']}", label_visibility="collapsed")
                     c5.write(f"**{p['Visitante']}**")
                     
-                    # Guardamos la info temporalmente
                     lista_para_guardar.append({
                         "partido_airtable_id": p["Airtable_ID"],
                         "goles_local": gl,
@@ -143,20 +152,29 @@ if st.session_state.connected:
                     })
             
             if st.form_submit_button("Guardar Mis Pronósticos", use_container_width=True):
-                with st.spinner("Guardando en la base de datos..."):
-                    # Aquí todavía no tenemos el email real porque no lo pedimos a Google, 
-                    # pero vamos a usar un truco: si st.session_state.connected es True, 
-                    # por ahora pondremos un nombre fijo, o si quieres avanzar al siguiente nivel,
-                    # necesitamos que Google nos de el email.
-                    
-                    email_real = "invitado@mundial.com" # Temporal hasta que activemos el "User Info"
-                    
+                with st.spinner("Guardando en Airtable..."):
+                    # Por ahora usamos el mail fijo de prueba
+                    email_real = "usuario_prueba@gmail.com" 
                     if guardar_predicciones_airtable(lista_para_guardar, email_real):
                         st.success("✅ ¡Pronósticos guardados!")
                         st.balloons()
 
-    # (Resto de secciones omitidas para brevedad, mantener igual que antes)
+    # 3. SECCIÓN SIMULADOR
+    elif menu == "📊 Simulador":
+        st.subheader("📈 Simulador de Cuadros")
+        st.info("Esta sección permitirá proyectar quién avanza a las siguientes fases según tus resultados.")
+
+    # 4. SECCIÓN INFO
+    elif menu == "🏟️ Sedes y Equipos":
+        st.subheader("🏟️ Información del Mundial")
+        tab1, tab2 = st.tabs(["🌎 Equipos", "🏟️ Estadios"])
+        with tab1:
+            st.write("Información sobre las 48 selecciones clasificadas.")
+        with tab2:
+            st.write("Sedes en México, Canadá y Estados Unidos.")
+
 else:
     st.title("⚽ Prode Mundial 2026")
-    st.info("Inicia sesión para empezar")
+    st.write("Predice los resultados y compite con tus amigos.")
+    st.info("Inicia sesión para empezar a jugar.")
     login_google()
