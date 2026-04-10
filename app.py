@@ -49,21 +49,18 @@ def obtener_partidos_airtable():
     except:
         return []
 
-def guardar_predicciones_airtable(predicciones_lista):
-    """Envía la lista de predicciones a la tabla 'Predicciones' de Airtable"""
+def guardar_predicciones_airtable(predicciones_lista, email_usuario):
     url = f"https://api.airtable.com/v0/{st.secrets['airtable']['base_id']}/Predicciones"
     headers = {
         "Authorization": f"Bearer {st.secrets['airtable']['api_key']}",
         "Content-Type": "application/json"
     }
     
-    # Airtable permite enviar hasta 10 registros por vez en lotes
-    # Para simplificar, enviaremos uno por uno o en lote pequeño
     for pred in predicciones_lista:
         payload = {
             "fields": {
-                "Usuario": "usuario_prueba@gmail.com", # Luego lo cambiaremos por el email real de Google
-                "ID Partido": [pred["partido_airtable_id"]], # Debe ser una lista para campos vinculados
+                "Usuario": email_usuario, # <--- ¡AHORA USA EL EMAIL REAL!
+                "ID Partido": [pred["partido_airtable_id"]],
                 "Goles Local": pred["goles_local"],
                 "Goles Visitante": pred["goles_visitante"]
             }
