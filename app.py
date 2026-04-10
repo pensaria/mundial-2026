@@ -26,7 +26,7 @@ def obtener_partidos_airtable():
     try:
         url = f"https://api.airtable.com/v0/{st.secrets['airtable']['base_id']}/Partidos"
         headers = {"Authorization": f"Bearer {st.secrets['airtable']['api_key']}"}
-        params = {"maxRecords": 24, "view": "Grid view", "sort[0][field]": "ID Partido", "sort[0][direction]": "asc"} 
+        params = {"view": "Grid view", "sort[0][field]": "ID Partido", "sort[0][direction]": "asc"} 
         response = requests.get(url, headers=headers, params=params)
         if response.status_code == 200:
             data = response.json()
@@ -35,8 +35,13 @@ def obtener_partidos_airtable():
                 f = record['fields']
                 partidos.append({
                     "ID": f.get("ID Partido"),
+                    "Etapa": f.get("Etapa"),
+                    "Jornada": f.get("Jornada"), # <--- AHORA BUSCAMOS 'JORNADA'
                     "Local": f.get("Nombre (from Equipo Local)")[0] if isinstance(f.get("Nombre (from Equipo Local)"), list) else f.get("Nombre (from Equipo Local)"),
                     "Visitante": f.get("Nombre (from Equipo Visitante)")[0] if isinstance(f.get("Nombre (from Equipo Visitante)"), list) else f.get("Nombre (from Equipo Visitante)"),
+                    "Goles Real L": f.get("Goles Local"),
+                    "Goles Real V": f.get("Goles Visitante"),
+                    "Fecha_Hora": f.get("Fecha Hora"), 
                     "Airtable_ID": record['id']
                 })
             return partidos
@@ -123,24 +128,50 @@ if st.session_state.connected:
 
     elif menu == "⚽ Jugar Prode":
         st.subheader("📝 Tus Predicciones")
-        partidos = obtener_partidos_airtable()
-        with st.form("form_prode"):
-            lista_para_guardar = []
-            for p in partidos:
-                with st.container(border=True):
-                    c1, c2, c3, c4, c5 = st.columns([1, 3, 2, 2, 3])
-                    c1.caption(p["ID"])
-                    c2.write(f"**{p['Local']}**")
-                    gl = c3.number_input("L", min_value=0, max_value=20, step=1, key=f"l_{p['ID']}", label_visibility="collapsed")
-                    gv = c4.number_input("V", min_value=0, max_value=20, step=1, key=f"v_{p['ID']}", label_visibility="collapsed")
-                    c5.write(f"**{p['Visitante']}**")
-                    lista_para_guardar.append({"partido_airtable_id": p["Airtable_ID"], "goles_local": gl, "goles_visitante": gv})
+        todos_partidos = obtener_partidos_airtable()
+        
+        # Filtro por Jornada en lugar de Etapa general
+        jornadas_disponibles = sorted(list(set([p['Jornada'] for p in todos_partidos if p['Jornada']])))
+        if not jornadas_disponibles:
+            st.warning("Carga la columna 'Jornada' en Airtable para ver los partidos.")
+        else:
+            jornada_sel = st.selectbox("Selecciona la Jornada:", jornadas_disponibles)
             
-            if st.form_submit_button("Guardar Pronósticos", use_container_width=True):
-                with st.spinner("Sincronizando con Airtable..."):
+            partidos_filtrados = [p for p in todos_partidos if p['Jornada'] == jornada_sel]
+
+            # --- LÓGICA DE CIERRE (6 HORAS ANTES) ---
+            ahora = datetime.now()
+            fechas_dt = []
+            for p in partidos_filtrados:
+                if p['Fecha_Hora']:
+                    fechas_dt.append(datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z"))
+            
+            bloqueo_total = False
+            if fechas_dt:
+                primer_partido = min(fechas_dt)
+                limite_pronostico = primer_partido - timedelta(hours=6)
+                
+                if ahora > limite_pronostico:
+                    bloqueo_total = True
+                    st.error(f"🔒 Jornada {jornada_sel} Bloqueada. El límite era hasta el {limite_pronostico.strftime('%d/%m a las %H:%M')}.")
+                else:
+                    st.info(f"⏳ Tienes tiempo de editar hasta el {limite_pronostico.strftime('%d/%m a las %H:%M')}.")
+
+            with st.form("form_prode"):
+                lista_a_guardar = []
+                for p in partidos_filtrados:
+                    with st.container(border=True):
+                        c1, c2, c3, c4 = st.columns([3, 2, 2, 3])
+                        c1.write(f"**{p['Local']}**")
+                        gl = c2.number_input("L", min_value=0, key=f"l_{p['ID']}", label_visibility="collapsed", disabled=bloqueo_total)
+                        gv = c3.number_input("V", min_value=0, key=f"v_{p['ID']}", label_visibility="collapsed", disabled=bloqueo_total)
+                        c4.write(f"**{p['Visitante']}**")
+                        lista_a_guardar.append({"partido_airtable_id": p["Airtable_ID"], "goles_local": gl, "goles_visitante": gv})
+                
+                if st.form_submit_button("Guardar Jornada", use_container_width=True, disabled=bloqueo_total):
                     email_real = "usuario_prueba@gmail.com" 
-                    if guardar_predicciones_airtable(lista_para_guardar, email_real):
-                        st.success("✅ ¡Datos actualizados!")
+                    if guardar_predicciones_airtable(lista_a_guardar, email_real):
+                        st.success("¡Pronósticos guardados!")
                         st.balloons()
 
     elif menu == "📊 Simulador": st.info("Próximamente")
