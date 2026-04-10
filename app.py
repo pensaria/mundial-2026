@@ -68,6 +68,27 @@ def guardar_predicciones_airtable(predicciones_lista, email_usuario):
         requests.post(url, headers=headers, json=payload)
     return True
 
+def obtener_ranking():
+    url = f"https://api.airtable.com/v0/{st.secrets['airtable']['base_id']}/Predicciones"
+    headers = {"Authorization": f"Bearer {st.secrets['airtable']['api_key']}"}
+    
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        records = response.json().get('records', [])
+        puntos_por_usuario = {}
+        
+        for r in records:
+            user = r['fields'].get('Usuario')
+            pts = r['fields'].get('Puntos Obtenidos', 0)
+            
+            if user:
+                puntos_por_usuario[user] = puntos_por_usuario.get(user, 0) + pts
+        
+        # Convertir a lista y ordenar de mayor a menor
+        ranking = [{"Usuario": k, "Puntos": v} for k, v in puntos_por_usuario.items()]
+        return sorted(ranking, key=lambda x: x['Puntos'], reverse=True)
+    return []
+
 # --- LÓGICA DE NAVEGACIÓN ---
 
 if "connected" not in st.session_state:
