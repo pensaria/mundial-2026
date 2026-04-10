@@ -126,36 +126,49 @@ if st.session_state.connected:
         if datos_ranking: st.table(datos_ranking)
         else: st.info("Sin puntos aún.")
 
-    elif menu == "⚽ Jugar Prode":
+elif menu == "⚽ Jugar Prode":
         st.subheader("📝 Tus Predicciones")
         todos_partidos = obtener_partidos_airtable()
         
-        # Filtro por Jornada en lugar de Etapa general
         jornadas_disponibles = sorted(list(set([p['Jornada'] for p in todos_partidos if p['Jornada']])))
         if not jornadas_disponibles:
             st.warning("Carga la columna 'Jornada' en Airtable para ver los partidos.")
         else:
             jornada_sel = st.selectbox("Selecciona la Jornada:", jornadas_disponibles)
-            
             partidos_filtrados = [p for p in todos_partidos if p['Jornada'] == jornada_sel]
 
-            # --- LÓGICA DE CIERRE (6 HORAS ANTES) ---
-            ahora = datetime.now()
+            # --- LÓGICA DE CIERRE HORARIO (SOFIA) Y CUENTA REGRESIVA ---
+            from zoneinfo import ZoneInfo
+            from datetime import timezone
+            
+            zona_sofia = ZoneInfo("Europe/Sofia")
+            ahora_sofia = datetime.now(zona_sofia)
+            
             fechas_dt = []
             for p in partidos_filtrados:
                 if p['Fecha_Hora']:
-                    fechas_dt.append(datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z"))
+                    # 1. Leemos la hora UTC que manda Airtable
+                    fecha_utc = datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc)
+                    # 2. La convertimos a hora de Sofia
+                    fecha_sofia = fecha_utc.astimezone(zona_sofia)
+                    fechas_dt.append(fecha_sofia)
             
             bloqueo_total = False
             if fechas_dt:
                 primer_partido = min(fechas_dt)
                 limite_pronostico = primer_partido - timedelta(hours=6)
                 
-                if ahora > limite_pronostico:
+                # Calculamos cuánto falta
+                tiempo_restante = limite_pronostico - ahora_sofia
+                
+                if ahora_sofia > limite_pronostico:
                     bloqueo_total = True
-                    st.error(f"🔒 Jornada {jornada_sel} Bloqueada. El límite era hasta el {limite_pronostico.strftime('%d/%m a las %H:%M')}.")
+                    st.error(f"🔒 Jornada {jornada_sel} Cerrada. El límite era hasta el {limite_pronostico.strftime('%d/%m a las %H:%M')}.")
                 else:
-                    st.info(f"⏳ Tienes tiempo de editar hasta el {limite_pronostico.strftime('%d/%m a las %H:%M')}.")
+                    # Extraemos días y horas para el mensaje
+                    dias = tiempo_restante.days
+                    horas = tiempo_restante.seconds // 3600
+                    st.success(f"⏳ **Tiempo restante para editar:** {dias} días y {horas} horas. (Cierra el {limite_pronostico.strftime('%d/%m a las %H:%M')} hora de Sofia).")
 
             with st.form("form_prode"):
                 lista_a_guardar = []
