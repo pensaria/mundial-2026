@@ -123,8 +123,15 @@ if st.session_state.connected:
             
             if st.form_submit_button("Guardar Mis Pronósticos", use_container_width=True):
                 with st.spinner("Guardando en la base de datos..."):
-                    if guardar_predicciones_airtable(lista_para_guardar):
-                        st.success("✅ ¡Pronósticos guardados correctamente!")
+                    # Aquí todavía no tenemos el email real porque no lo pedimos a Google, 
+                    # pero vamos a usar un truco: si st.session_state.connected es True, 
+                    # por ahora pondremos un nombre fijo, o si quieres avanzar al siguiente nivel,
+                    # necesitamos que Google nos de el email.
+                    
+                    email_real = "invitado@mundial.com" # Temporal hasta que activemos el "User Info"
+                    
+                    if guardar_predicciones_airtable(lista_para_guardar, email_real):
+                        st.success("✅ ¡Pronósticos guardados!")
                         st.balloons()
 
     # (Resto de secciones omitidas para brevedad, mantener igual que antes)
