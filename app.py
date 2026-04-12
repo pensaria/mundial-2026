@@ -1,6 +1,8 @@
 import streamlit as st
 import requests
 from urllib.parse import urlencode
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 # 1. Configuración de la página
 st.set_page_config(page_title="Mundial 2026", page_icon="⚽", layout="wide")
@@ -36,7 +38,7 @@ def obtener_partidos_airtable():
                 partidos.append({
                     "ID": f.get("ID Partido"),
                     "Etapa": f.get("Etapa"),
-                    "Jornada": f.get("Jornada"), # <--- AHORA BUSCAMOS 'JORNADA'
+                    "Jornada": f.get("Jornada"),
                     "Local": f.get("Nombre (from Equipo Local)")[0] if isinstance(f.get("Nombre (from Equipo Local)"), list) else f.get("Nombre (from Equipo Local)"),
                     "Visitante": f.get("Nombre (from Equipo Visitante)")[0] if isinstance(f.get("Nombre (from Equipo Visitante)"), list) else f.get("Nombre (from Equipo Visitante)"),
                     "Goles Real L": f.get("Goles Local"),
@@ -60,8 +62,6 @@ def guardar_predicciones_airtable(predicciones_lista, email_usuario):
     existing_records = {}
     if existing_resp.status_code == 200:
         for rec in existing_resp.json().get('records', []):
-            # Guardamos el ID del partido vinculado para identificar la fila
-            # Nota: Al ser link, viene como lista de IDs
             p_id_link = rec['fields'].get('ID Partido', [None])[0]
             if p_id_link:
                 existing_records[p_id_link] = rec['id']
@@ -120,7 +120,7 @@ if st.session_state.connected:
     
     st.title("🏆 Prode Mundial 2026")
 
-if menu == "🏠 Inicio":
+    if menu == "🏠 Inicio":
         col1, col2 = st.columns([2, 1]) # Dividimos la pantalla en dos columnas
         
         with col1:
@@ -134,9 +134,6 @@ if menu == "🏠 Inicio":
         with col2:
             st.subheader("📅 Próximos Partidos")
             todos_partidos = obtener_partidos_airtable()
-            
-            from zoneinfo import ZoneInfo
-            from datetime import timezone, datetime
             
             zona_sofia = ZoneInfo("Europe/Sofia")
             ahora_sofia = datetime.now(zona_sofia)
@@ -164,7 +161,7 @@ if menu == "🏠 Inicio":
             else:
                 st.info("No hay partidos próximos.")
 
-elif menu == "⚽ Jugar Prode":
+    elif menu == "⚽ Jugar Prode":
         st.subheader("📝 Tus Predicciones")
         todos_partidos = obtener_partidos_airtable()
         
@@ -176,9 +173,6 @@ elif menu == "⚽ Jugar Prode":
             partidos_filtrados = [p for p in todos_partidos if p['Jornada'] == jornada_sel]
 
             # --- LÓGICA DE CIERRE HORARIO (SOFIA) Y CUENTA REGRESIVA ---
-            from zoneinfo import ZoneInfo
-            from datetime import timezone
-            
             zona_sofia = ZoneInfo("Europe/Sofia")
             ahora_sofia = datetime.now(zona_sofia)
             
@@ -225,8 +219,12 @@ elif menu == "⚽ Jugar Prode":
                         st.success("¡Pronósticos guardados!")
                         st.balloons()
 
-    elif menu == "📊 Simulador": st.info("Próximamente")
-    elif menu == "🏟️ Sedes y Equipos": st.info("Próximamente")
+    elif menu == "📊 Simulador": 
+        st.info("Próximamente")
+        
+    elif menu == "🏟️ Sedes y Equipos": 
+        st.info("Próximamente")
+        
 else:
     st.title("⚽ Prode Mundial 2026")
     login_google()
