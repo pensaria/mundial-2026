@@ -120,11 +120,49 @@ if st.session_state.connected:
     
     st.title("🏆 Prode Mundial 2026")
 
-    if menu == "🏠 Inicio":
-        st.subheader("📊 Tabla de Posiciones")
-        datos_ranking = obtener_ranking()
-        if datos_ranking: st.table(datos_ranking)
-        else: st.info("Sin puntos aún.")
+if menu == "🏠 Inicio":
+        col1, col2 = st.columns([2, 1]) # Dividimos la pantalla en dos columnas
+        
+        with col1:
+            st.subheader("📊 Tabla de Posiciones")
+            datos_ranking = obtener_ranking()
+            if datos_ranking:
+                st.table(datos_ranking)
+            else:
+                st.info("Aún no hay puntos registrados.")
+
+        with col2:
+            st.subheader("📅 Próximos Partidos")
+            todos_partidos = obtener_partidos_airtable()
+            
+            from zoneinfo import ZoneInfo
+            from datetime import timezone, datetime
+            
+            zona_sofia = ZoneInfo("Europe/Sofia")
+            ahora_sofia = datetime.now(zona_sofia)
+            
+            proximos_partidos = []
+            
+            for p in todos_partidos:
+                if p['Fecha_Hora']:
+                    fecha_utc = datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc)
+                    fecha_sofia = fecha_utc.astimezone(zona_sofia)
+                    
+                    # Filtramos solo los partidos que aún no han pasado
+                    if fecha_sofia > ahora_sofia:
+                        proximos_partidos.append((fecha_sofia, p))
+            
+            # Ordenamos cronológicamente
+            proximos_partidos.sort(key=lambda x: x[0])
+            
+            if proximos_partidos:
+                # Mostramos solo los próximos 5 partidos
+                for fecha_sofia, p in proximos_partidos[:5]:
+                    with st.container(border=True):
+                        st.caption(f"{fecha_sofia.strftime('%d/%m - %H:%M hs')}")
+                        st.write(f"**{p['Local']}** vs **{p['Visitante']}**")
+            else:
+                st.info("No hay partidos próximos.")
 
 elif menu == "⚽ Jugar Prode":
         st.subheader("📝 Tus Predicciones")
