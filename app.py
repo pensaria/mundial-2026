@@ -43,7 +43,8 @@ def obtener_partidos_airtable():
                     "Visitante": f.get("Nombre (from Equipo Visitante)")[0] if isinstance(f.get("Nombre (from Equipo Visitante)"), list) else f.get("Nombre (from Equipo Visitante)"),
                     "Goles Real L": f.get("Goles Local"),
                     "Goles Real V": f.get("Goles Visitante"),
-                    "Fecha_Hora": f.get("Fecha Hora"), 
+                    # Corregimos el nombre de la columna para que busque ambas opciones
+                    "Fecha_Hora": f.get("Fecha y Hora", f.get("Fecha Hora")), 
                     "Airtable_ID": record['id']
                 })
             return partidos
@@ -56,33 +57,20 @@ def guardar_predicciones_airtable(predicciones_lista, email_usuario):
     url = f"https://api.airtable.com/v0/{base_id}/Predicciones"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     
-    # 1. Obtener predicciones existentes para este usuario para saber si actualizar o crear
     check_url = f"{url}?filterByFormula=Usuario='{email_usuario}'"
     existing_resp = requests.get(check_url, headers=headers)
     existing_records = {}
     if existing_resp.status_code == 200:
         for rec in existing_resp.json().get('records', []):
             p_id_link = rec['fields'].get('ID Partido', [None])[0]
-            if p_id_link:
-                existing_records[p_id_link] = rec['id']
+            if p_id_link: existing_records[p_id_link] = rec['id']
 
-    # 2. Procesar cada predicción
     for pred in predicciones_lista:
         p_id = pred["partido_airtable_id"]
-        payload = {
-            "fields": {
-                "Usuario": email_usuario,
-                "ID Partido": [p_id],
-                "Goles Local": pred["goles_local"],
-                "Goles Visitante": pred["goles_visitante"]
-            }
-        }
-        
+        payload = {"fields": {"Usuario": email_usuario, "ID Partido": [p_id], "Goles Local": pred["goles_local"], "Goles Visitante": pred["goles_visitante"]}}
         if p_id in existing_records:
-            # ACTUALIZAR (PATCH)
             requests.patch(f"{url}/{existing_records[p_id]}", headers=headers, json=payload)
         else:
-            # CREAR (POST)
             requests.post(url, headers=headers, json=payload)
     return True
 
@@ -97,8 +85,7 @@ def obtener_ranking():
             for r in records:
                 user = r['fields'].get('Usuario')
                 pts = r['fields'].get('Puntos Obtenidos', 0)
-                if user:
-                    puntos_por_usuario[user] = puntos_por_usuario.get(user, 0) + pts
+                if user: puntos_por_usuario[user] = puntos_por_usuario.get(user, 0) + pts
             ranking = [{"Usuario": k, "Puntos": v} for k, v in puntos_por_usuario.items()]
             return sorted(ranking, key=lambda x: x['Puntos'], reverse=True)
         return []
@@ -106,22 +93,28 @@ def obtener_ranking():
 
 # --- LÓGICA DE NAVEGACIÓN ---
 if "connected" not in st.session_state: st.session_state.connected = False
-if "vista" not in st.session_state: st.session_state.vista = "inicio"
 if "code" in st.query_params: st.session_state.connected = True
+# Creamos una variable de estado para controlar el menú
+if "menu_sel" not in st.session_state: st.session_state.menu_sel = "🏠 Inicio"
 
 # --- INTERFAZ ---
 if st.session_state.connected:
     st.sidebar.success("✅ Conectado")
-    menu = st.sidebar.radio("Menú Principal", ["🏠 Inicio", "⚽ Jugar Prode", "📊 Simulador", "🏟️ Sedes y Equipos"])
+    
+    # Vinculamos el radio button a nuestra variable de estado (menu_sel)
+    menu = st.sidebar.radio("Menú Principal", 
+                            ["🏠 Inicio", "⚽ Jugar Prode", "🏆 Resultados", "📊 Simulador", "🏟️ Sedes y Equipos"], 
+                            key="menu_sel")
+    
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.connected = False
-        st.session_state.vista = "inicio"
+        st.session_state.menu_sel = "🏠 Inicio"
         st.rerun()
     
     st.title("🏆 Prode Mundial 2026")
 
     if menu == "🏠 Inicio":
-        col1, col2 = st.columns([2, 1]) # Dividimos la pantalla en dos columnas
+        col1, col2 = st.columns([2, 1]) 
         
         with col1:
             st.subheader("📊 Tabla de Posiciones")
@@ -137,29 +130,28 @@ if st.session_state.connected:
             
             zona_sofia = ZoneInfo("Europe/Sofia")
             ahora_sofia = datetime.now(zona_sofia)
-            
             proximos_partidos = []
             
             for p in todos_partidos:
                 if p['Fecha_Hora']:
                     fecha_utc = datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc)
                     fecha_sofia = fecha_utc.astimezone(zona_sofia)
-                    
-                    # Filtramos solo los partidos que aún no han pasado
                     if fecha_sofia > ahora_sofia:
                         proximos_partidos.append((fecha_sofia, p))
             
-            # Ordenamos cronológicamente
             proximos_partidos.sort(key=lambda x: x[0])
             
             if proximos_partidos:
-                # Mostramos solo los próximos 5 partidos
                 for fecha_sofia, p in proximos_partidos[:5]:
                     with st.container(border=True):
                         st.caption(f"{fecha_sofia.strftime('%d/%m - %H:%M hs')}")
                         st.write(f"**{p['Local']}** vs **{p['Visitante']}**")
             else:
-                st.info("No hay partidos próximos.")
+                # ¡Botón interactivo de finalización!
+                st.success("🏆 ¡El Mundial ha terminado!")
+                if st.button("Ver Resultados Finales", use_container_width=True):
+                    st.session_state.menu_sel = "🏆 Resultados"
+                    st.rerun()
 
     elif menu == "⚽ Jugar Prode":
         st.subheader("📝 Tus Predicciones")
@@ -172,16 +164,13 @@ if st.session_state.connected:
             jornada_sel = st.selectbox("Selecciona la Jornada:", jornadas_disponibles)
             partidos_filtrados = [p for p in todos_partidos if p['Jornada'] == jornada_sel]
 
-            # --- LÓGICA DE CIERRE HORARIO (SOFIA) Y CUENTA REGRESIVA ---
             zona_sofia = ZoneInfo("Europe/Sofia")
             ahora_sofia = datetime.now(zona_sofia)
             
             fechas_dt = []
             for p in partidos_filtrados:
                 if p['Fecha_Hora']:
-                    # 1. Leemos la hora UTC que manda Airtable
                     fecha_utc = datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc)
-                    # 2. La convertimos a hora de Sofia
                     fecha_sofia = fecha_utc.astimezone(zona_sofia)
                     fechas_dt.append(fecha_sofia)
             
@@ -189,15 +178,12 @@ if st.session_state.connected:
             if fechas_dt:
                 primer_partido = min(fechas_dt)
                 limite_pronostico = primer_partido - timedelta(hours=6)
-                
-                # Calculamos cuánto falta
                 tiempo_restante = limite_pronostico - ahora_sofia
                 
                 if ahora_sofia > limite_pronostico:
                     bloqueo_total = True
                     st.error(f"🔒 Jornada {jornada_sel} Cerrada. El límite era hasta el {limite_pronostico.strftime('%d/%m a las %H:%M')}.")
                 else:
-                    # Extraemos días y horas para el mensaje
                     dias = tiempo_restante.days
                     horas = tiempo_restante.seconds // 3600
                     st.success(f"⏳ **Tiempo restante para editar:** {dias} días y {horas} horas. (Cierra el {limite_pronostico.strftime('%d/%m a las %H:%M')} hora de Sofia).")
@@ -218,9 +204,14 @@ if st.session_state.connected:
                     if guardar_predicciones_airtable(lista_a_guardar, email_real):
                         st.success("¡Pronósticos guardados!")
                         st.balloons()
+    
+    # --- NUEVA SECCIÓN: RESULTADOS ---
+    elif menu == "🏆 Resultados":
+        st.subheader("🏆 Resultados Oficiales")
+        st.info("Aquí mostraremos los resultados reales de los partidos, las tablas de posiciones de los 12 grupos y el cuadro de eliminación directa.")
 
     elif menu == "📊 Simulador": 
-        st.info("Próximamente")
+        st.info("Próximamente: El algoritmo calculará los 8 mejores terceros automáticamente.")
         
     elif menu == "🏟️ Sedes y Equipos": 
         st.info("Próximamente")
