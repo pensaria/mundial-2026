@@ -66,14 +66,9 @@ def obtener_partidos_airtable():
             partidos = []
             for record in data['records']:
                 f = record['fields']
-                
-                # Extraer Banderas y Datos de Grupo/Rank
                 bandera_l = f.get("Bandera L")[0].get("url") if f.get("Bandera L") else ""
                 bandera_v = f.get("Bandera V")[0].get("url") if f.get("Bandera V") else ""
-                
-                # IMPORTANTE: Aquí buscamos el grupo real que viene de la tabla Equipos
                 grupo_real = f.get("Grupo (from Equipo Local)")[0] if f.get("Grupo (from Equipo Local)") else None
-                
                 rank_l = f.get("# Ranking FIFA (from Equipo Local)")[0] if f.get("# Ranking FIFA (from Equipo Local)") else 100
                 rank_v = f.get("# Ranking FIFA (from Equipo Visitante)")[0] if f.get("# Ranking FIFA (from Equipo Visitante)") else 100
                 
@@ -81,10 +76,12 @@ def obtener_partidos_airtable():
                     "ID": f.get("ID Partido"),
                     "Grupo": grupo_real,
                     "Local_ES": f.get("Nombre (from Equipo Local)")[0] if isinstance(f.get("Nombre (from Equipo Local)"), list) else f.get("Nombre (from Equipo Local)"),
+                    "Local_EN": f.get("Nombre EN (from Equipo Local)")[0] if f.get("Nombre EN (from Equipo Local)") else f.get("Nombre (from Equipo Local)"),
                     "Visitante_ES": f.get("Nombre (from Equipo Visitante)")[0] if isinstance(f.get("Nombre (from Equipo Visitante)"), list) else f.get("Nombre (from Equipo Visitante)"),
+                    "Visitante_EN": f.get("Nombre EN (from Equipo Visitante)")[0] if f.get("Nombre EN (from Equipo Visitante)") else f.get("Nombre (from Equipo Visitante)"),
                     "Bandera_L": bandera_l, "Bandera_V": bandera_v,
                     "Rank_L": rank_l, "Rank_V": rank_v,
-                    "FP_L": f.get("Fair Play L", 0), # Leemos directamente tu nueva columna
+                    "FP_L": f.get("Fair Play L", 0),
                     "FP_V": f.get("Fair Play V", 0),
                     "Goles Real L": f.get("Goles Local"),
                     "Goles Real V": f.get("Goles Visitante"),
@@ -133,13 +130,11 @@ def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
     """
     return html
 
-# --- LÓGICA DE SESIÓN Y NAVEGACIÓN ---
 if "connected" not in st.session_state: st.session_state.connected = False
 if "code" in st.query_params: st.session_state.connected = True
 if "menu_sel_radio" not in st.session_state: st.session_state.menu_sel_radio = "🏠 Inicio"
 
 if st.session_state.connected:
-    # --- SIDEBAR COMÚN ---
     lang = st.sidebar.selectbox("🌐 Language", ["Español", "English"])
     t = texts[lang]
     st.sidebar.success(t["online"])
@@ -153,17 +148,13 @@ if st.session_state.connected:
 
     st.title(t["title"])
 
-    # --- 1. PESTAÑA INICIO ---
     if menu == t["nav_home"]:
         col1, col2 = st.columns([2, 1])
         with col1:
             st.subheader(t["ranking_title"])
             rank = obtener_ranking_global()
-            if rank:
-                st.table(rank)
-            else:
-                st.info("Aún no hay puntos registrados / No points registered yet.")
-
+            if rank: st.table(rank)
+            else: st.info("No points registered yet.")
         with col2:
             st.subheader(t["next_matches"])
             partidos = obtener_partidos_airtable()
@@ -173,10 +164,8 @@ if st.session_state.connected:
             for p in partidos:
                 if p['Fecha_Hora']:
                     f_sofia = datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia)
-                    if f_sofia > ahora:
-                        proximos.append((f_sofia, p))
+                    if f_sofia > ahora: proximos.append((f_sofia, p))
             proximos.sort(key=lambda x: x[0])
-
             if proximos:
                 for f, p in proximos[:5]:
                     with st.container(border=True):
@@ -184,10 +173,8 @@ if st.session_state.connected:
                         st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
                         st.markdown("<div style='text-align: center; margin: -5px 0; color: #888; font-size: 12px;'>VS</div>", unsafe_allow_html=True)
                         st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang), unsafe_allow_html=True)
-            else:
-                st.success(t["no_matches"])
+            else: st.success(t["no_matches"])
 
-    # --- 2. PESTAÑA JUGAR PRODE ---
     elif menu == t["nav_play"]:
         st.subheader(t["nav_play"])
         email_user = "usuario_prueba@gmail.com"
@@ -195,8 +182,8 @@ if st.session_state.connected:
         preds_actuales = obtener_predicciones_usuario(email_user)
         jornadas = sorted(list(set([p['Jornada'] for p in partidos if p['Jornada']])))
         j_sel = st.selectbox("Jornada / Round:", jornadas)
-        
         partidos_f = [p for p in partidos if p['Jornada'] == j_sel]
+        
         zona_sofia = ZoneInfo("Europe/Sofia")
         ahora = datetime.now(zona_sofia)
         fechas_j = [datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia) for p in partidos_f if p['Fecha_Hora']]
@@ -223,44 +210,38 @@ if st.session_state.connected:
                     gv = c4.number_input("V", 0, 20, v_v, key=f"v_{p['ID']}", label_visibility="collapsed", disabled=bloqueo)
                     with c5: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
             
+            # EL BOTÓN DEBE ESTAR AQUÍ DENTRO (MISMA INDENTACIÓN)
             if st.form_submit_button(t["save_btn"], use_container_width=True, disabled=bloqueo):
                 for p in partidos_f:
                     guardar_prediccion_supabase(email_user, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
-                st.success("¡Guardado! / Saved!")
+                st.success("Saved!")
                 st.balloons()
 
-    # --- 3. PESTAÑA RESULTADOS (Criterio FIFA) ---
     elif menu == t["nav_results"]:
         st.subheader(t["nav_results"])
         partidos = obtener_partidos_airtable()
-        if not partidos:
-            st.info("No hay datos cargados en Airtable.")
+        if not partidos: st.info("No hay datos.")
         else:
             stats_global = {}
             for p in partidos:
                 if p['Goles Real L'] is not None and p['Goles Real V'] is not None and p['Grupo']:
                     g, l, v = p['Grupo'], p['Local_ES'], p['Visitante_ES']
                     gl, gv = int(p['Goles Real L']), int(p['Goles Real V'])
-                    
                     for eq, rnk, fp in [(l, p['Rank_L'], p['FP_L']), (v, p['Rank_V'], p['FP_V'])]:
                         if eq not in stats_global:
                             stats_global[eq] = {'Equipo': eq, 'PJ':0, 'PTS':0, 'GF':0, 'GC':0, 'DG':0, 'Rank': rnk, 'Grupo': g, 'FP': 0}
                         stats_global[eq]['FP'] += fp
-
                     stats_global[l]['PJ'] += 1; stats_global[v]['PJ'] += 1
                     stats_global[l]['GF'] += gl; stats_global[l]['GC'] += gv
                     stats_global[v]['GF'] += gv; stats_global[v]['GC'] += gl
-                    
                     if gl > gv: stats_global[l]['PTS'] += 3
                     elif gl < gv: stats_global[v]['PTS'] += 3
                     else: stats_global[l]['PTS'] += 1; stats_global[v]['PTS'] += 1
-                    
                     stats_global[l]['DG'] = stats_global[l]['GF'] - stats_global[l]['GC']
                     stats_global[v]['DG'] = stats_global[v]['GF'] - stats_global[v]['GC']
 
             grupos_ids = sorted(list(set([s['Grupo'] for s in stats_global.values()])))
             tablas_finales = {}
-
             for g_id in grupos_ids:
                 st.write(f"### GRUPO {g_id}")
                 eq_grupo = [s for s in stats_global.values() if s['Grupo'] == g_id]
@@ -277,12 +258,10 @@ if st.session_state.connected:
                     return ['background-color: rgba(46, 204, 113, 0.3)' if s.name < 8 else '' for _ in s]
                 st.dataframe(df_3[['Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'FP']].style.apply(highlight_top8, axis=1))
 
-    # --- 4. OTRAS PESTAÑAS ---
     else:
         st.info("Próximamente / Coming soon")
 
 else:
-    # --- PANTALLA DE LOGIN ---
     st.title("⚽ World Cup 2026")
     client_id = st.secrets["google_oauth"]["client_id"]
     redirect_uri = st.secrets["google_oauth"]["redirect_uri"]
