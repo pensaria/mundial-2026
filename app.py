@@ -59,7 +59,7 @@ def obtener_partidos_airtable():
     try:
         url = f"https://api.airtable.com/v0/{st.secrets['airtable']['base_id']}/Partidos"
         headers = {"Authorization": f"Bearer {st.secrets['airtable']['api_key']}"}
-        params = {"view": "Grid view", "sort[0][field]": "ID Partido", "sort[0][direction]": "asc"} 
+        params = {"view": "Grid view", "sort[0][field]": "ID Partido", "sort[0][direction] : "asc"} 
         response = requests.get(url, headers=headers, params=params)
         if response.status_code == 200:
             data = response.json()
@@ -67,18 +67,23 @@ def obtener_partidos_airtable():
             for record in data['records']:
                 f = record['fields']
                 
-                # --- BUSCADOR DE GRUPO DINÁMICO MEJORADO ---
-                # Intentamos capturar el campo de todas las formas posibles
-                grupo_raw = f.get("Grupo ID")
+                # --- BUSCADOR ULTRA-REFORZADO DE GRUPO ---
+                # Buscamos en orden de prioridad los nombres de columnas
+                grupo_raw = (
+                    f.get("Grupo ID (from Equipo Local)") or 
+                    f.get("Grupo (from Equipo Local)") or 
+                    f.get("Grupo ID") or 
+                    f.get("Grupo")
+                )
                 
-                # Si es una lista (Lookup), extraemos el primer texto
                 if isinstance(grupo_raw, list) and len(grupo_raw) > 0:
                     grupo_real = str(grupo_raw[0]).strip()
                 elif grupo_raw:
                     grupo_real = str(grupo_raw).strip()
                 else:
-                    # Si no encuentra nada, vamos a intentar buscar CUALQUIER campo que contenga la palabra 'Grupo'
-                    grupo_real = next((str(v[0]) if isinstance(v, list) else str(v)) for k, v in f.items() if "Grupo" in k) if any("Grupo" in k for k in f.keys()) else "Definir"
+                    # Si sigue sin aparecer, intentamos pescar cualquier campo que diga "Grupo"
+                    grupo_real = next((str(v[0]) if isinstance(v, list) else str(v)) 
+                                    for k, v in f.items() if "Grupo" in k) if any("Grupo" in k for k in f.keys()) else "Definir"
 
                 # Banderas
                 bandera_l = f.get("Bandera L")[0].get("url") if f.get("Bandera L") else ""
@@ -106,7 +111,7 @@ def obtener_partidos_airtable():
     except Exception as e:
         st.error(f"Error Airtable: {e}")
         return []
-
+        
 def guardar_prediccion_supabase(user, partido_id, gl, gv):
     data = {"usuario": user, "partido_id": str(partido_id), "goles_local": gl, "goles_visitante": gv}
     supabase.table("predicciones").upsert(data, on_conflict="usuario, partido_id").execute()
