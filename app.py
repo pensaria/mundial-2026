@@ -66,12 +66,17 @@ def obtener_partidos_airtable():
             partidos = []
             for record in data['records']:
                 f = record['fields']
+                
+                # Banderas
                 bandera_l = f.get("Bandera L")[0].get("url") if f.get("Bandera L") else ""
                 bandera_v = f.get("Bandera V")[0].get("url") if f.get("Bandera V") else ""
-                grupo_real = f.get("Grupo (from Equipo Local)")[0] if f.get("Grupo (from Equipo Local)") else None
-                rank_l = f.get("# Ranking FIFA (from Equipo Local)")[0] if f.get("# Ranking FIFA (from Equipo Local)") else 100
-                rank_v = f.get("# Ranking FIFA (from Equipo Visitante)")[0] if f.get("# Ranking FIFA (from Equipo Visitante)") else 100
                 
+                # --- VALIDACIÓN DE GRUPO ---
+                # Traemos el grupo. Si es una lista (Lookup), tomamos el primer elemento.
+                grupo_raw = f.get("Grupo (from Equipo Local)")
+                grupo_real = grupo_raw[0] if isinstance(grupo_raw, list) else grupo_raw
+                if not grupo_real: grupo_real = "Definir" # Valor por defecto para que no sea None
+
                 partidos.append({
                     "ID": f.get("ID Partido"),
                     "Grupo": grupo_real,
@@ -80,7 +85,8 @@ def obtener_partidos_airtable():
                     "Visitante_ES": f.get("Nombre (from Equipo Visitante)")[0] if isinstance(f.get("Nombre (from Equipo Visitante)"), list) else f.get("Nombre (from Equipo Visitante)"),
                     "Visitante_EN": f.get("Nombre EN (from Equipo Visitante)")[0] if f.get("Nombre EN (from Equipo Visitante)") else f.get("Nombre (from Equipo Visitante)"),
                     "Bandera_L": bandera_l, "Bandera_V": bandera_v,
-                    "Rank_L": rank_l, "Rank_V": rank_v,
+                    "Rank_L": f.get("# Ranking FIFA (from Equipo Local)")[0] if f.get("# Ranking FIFA (from Equipo Local)") else 100,
+                    "Rank_V": f.get("# Ranking FIFA (from Equipo Visitante)")[0] if f.get("# Ranking FIFA (from Equipo Visitante)") else 100,
                     "FP_L": f.get("Fair Play L", 0),
                     "FP_V": f.get("Fair Play V", 0),
                     "Goles Real L": f.get("Goles Local"),
