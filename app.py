@@ -143,22 +143,31 @@ if st.session_state.connected:
 
 if menu == t["nav_home"]:
         col1, col2 = st.columns([2, 1])
+        
         with col1:
             st.subheader(t["ranking_title"])
             rank = obtener_ranking_global()
-            
-            # Corregimos el bloque de la tabla aquí:
             if rank:
                 st.table(rank)
             else:
                 st.info("Aún no hay puntos registrados / No points registered yet.")
+
         with col2:
             st.subheader(t["next_matches"])
             partidos = obtener_partidos_airtable()
             zona_sofia = ZoneInfo("Europe/Sofia")
             ahora = datetime.now(zona_sofia)
-            proximos = sorted([ (datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia), p) for p in partidos if p['Fecha_Hora'] and datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia) > ahora ], key=lambda x: x[0])
-           if proximos:
+            
+            # Filtramos y ordenamos los próximos partidos
+            proximos = []
+            for p in partidos:
+                if p['Fecha_Hora']:
+                    f_sofia = datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia)
+                    if f_sofia > ahora:
+                        proximos.append((f_sofia, p))
+            proximos.sort(key=lambda x: x[0])
+
+            if proximos:
                 for f, p in proximos[:5]:
                     with st.container(border=True):
                         st.caption(f.strftime('%d/%m - %H:%M hs'))
@@ -168,7 +177,8 @@ if menu == t["nav_home"]:
                         st.markdown("<div style='text-align: center; margin: -5px 0; color: #888; font-size: 12px;'>VS</div>", unsafe_allow_html=True)
                         # Visitante
                         st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang), unsafe_allow_html=True)
-            else: st.success(t["no_matches"])
+            else:
+                st.success(t["no_matches"])
 
     elif menu == t["nav_play"]:
         st.subheader(t["nav_play"])
