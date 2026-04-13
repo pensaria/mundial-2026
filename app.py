@@ -123,17 +123,19 @@ def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
     """
     return html
 
-# --- NAVEGACIÓN ---
+# --- LÓGICA DE SESIÓN Y NAVEGACIÓN ---
 if "connected" not in st.session_state: st.session_state.connected = False
 if "code" in st.query_params: st.session_state.connected = True
 if "menu_sel_radio" not in st.session_state: st.session_state.menu_sel_radio = "🏠 Inicio"
 
 if st.session_state.connected:
+    # Sidebar común para usuarios conectados
     lang = st.sidebar.selectbox("🌐 Language", ["Español", "English"])
     t = texts[lang]
     st.sidebar.success(t["online"])
     
-    menu = st.sidebar.radio(t["nav_home"], [t["nav_home"], t["nav_play"], t["nav_results"], t["nav_sim"], t["nav_stadiums"]], key="menu_sel_radio")
+    opciones_menu = [t["nav_home"], t["nav_play"], t["nav_results"], t["nav_sim"], t["nav_stadiums"]]
+    menu = st.sidebar.radio(t["nav_home"], opciones_menu, key="menu_sel_radio")
     
     if st.sidebar.button(t["logout"]):
         st.session_state.connected = False
@@ -141,9 +143,9 @@ if st.session_state.connected:
 
     st.title(t["title"])
 
-if menu == t["nav_home"]:
+    # --- CONTENIDO DE LAS PESTAÑAS ---
+    if menu == t["nav_home"]:
         col1, col2 = st.columns([2, 1])
-        
         with col1:
             st.subheader(t["ranking_title"])
             rank = obtener_ranking_global()
@@ -157,8 +159,6 @@ if menu == t["nav_home"]:
             partidos = obtener_partidos_airtable()
             zona_sofia = ZoneInfo("Europe/Sofia")
             ahora = datetime.now(zona_sofia)
-            
-            # Filtramos y ordenamos los próximos partidos
             proximos = []
             for p in partidos:
                 if p['Fecha_Hora']:
@@ -171,11 +171,8 @@ if menu == t["nav_home"]:
                 for f, p in proximos[:5]:
                     with st.container(border=True):
                         st.caption(f.strftime('%d/%m - %H:%M hs'))
-                        # Local
                         st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
-                        # Separador elegante
                         st.markdown("<div style='text-align: center; margin: -5px 0; color: #888; font-size: 12px;'>VS</div>", unsafe_allow_html=True)
-                        # Visitante
                         st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang), unsafe_allow_html=True)
             else:
                 st.success(t["no_matches"])
@@ -192,6 +189,7 @@ if menu == t["nav_home"]:
         zona_sofia = ZoneInfo("Europe/Sofia")
         ahora = datetime.now(zona_sofia)
         fechas_j = [datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia) for p in partidos_f if p['Fecha_Hora']]
+        
         bloqueo = False
         if fechas_j:
             limite = min(fechas_j) - timedelta(hours=6)
@@ -220,11 +218,13 @@ if menu == t["nav_home"]:
                 st.success("¡Guardado! / Saved!")
                 st.balloons()
 
-    else: st.info("Coming soon / Próximamente")
+    else:
+        st.info("Coming soon / Próximamente")
+
 else:
+    # Pantalla de Login para usuarios no conectados
     st.title("⚽ World Cup 2026")
     client_id = st.secrets["google_oauth"]["client_id"]
     redirect_uri = st.secrets["google_oauth"]["redirect_uri"]
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode({'client_id': client_id, 'redirect_uri': redirect_uri, 'response_type': 'code', 'scope': 'openid email profile', 'prompt': 'select_account'})}"
-    # Corregido: Ahora usa la llave que sí existe en el diccionario
     st.link_button(texts["Español"]["login_btn"], auth_url, type="primary")
