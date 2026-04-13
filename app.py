@@ -69,7 +69,7 @@ def obtener_partidos_airtable():
                 
                 # --- BUSCADOR DE GRUPO DINÁMICO MEJORADO ---
                 # Intentamos capturar el campo de todas las formas posibles
-                grupo_raw = f.get("Grupo (from Equipo Local)") or f.get("Grupo (from Local)") or f.get("Grupo")
+                grupo_raw = f.get("Grupo ID")
                 
                 # Si es una lista (Lookup), extraemos el primer texto
                 if isinstance(grupo_raw, list) and len(grupo_raw) > 0:
