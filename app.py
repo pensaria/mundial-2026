@@ -67,17 +67,18 @@ def obtener_partidos_airtable():
             for record in data['records']:
                 f = record['fields']
                 
-                # --- BUSCADOR DE GRUPO DINÁMICO ---
-                # Probamos con varios nombres posibles que podrías tener en Airtable
-                grupo_raw = f.get("Grupo (from Equipo Local)") or f.get("Grupo") or f.get("Grupo L")
+                # --- BUSCADOR DE GRUPO DINÁMICO MEJORADO ---
+                # Intentamos capturar el campo de todas las formas posibles
+                grupo_raw = f.get("Grupo (from Equipo Local)") or f.get("Grupo (from Local)") or f.get("Grupo")
                 
-                # Si es una lista (caso típico de Lookup), extraemos el primer texto
+                # Si es una lista (Lookup), extraemos el primer texto
                 if isinstance(grupo_raw, list) and len(grupo_raw) > 0:
-                    grupo_real = str(grupo_raw[0])
+                    grupo_real = str(grupo_raw[0]).strip()
                 elif grupo_raw:
-                    grupo_real = str(grupo_raw)
+                    grupo_real = str(grupo_raw).strip()
                 else:
-                    grupo_real = "Definir"
+                    # Si no encuentra nada, vamos a intentar buscar CUALQUIER campo que contenga la palabra 'Grupo'
+                    grupo_real = next((str(v[0]) if isinstance(v, list) else str(v)) for k, v in f.items() if "Grupo" in k) if any("Grupo" in k for k in f.keys()) else "Definir"
 
                 # Banderas
                 bandera_l = f.get("Bandera L")[0].get("url") if f.get("Bandera L") else ""
