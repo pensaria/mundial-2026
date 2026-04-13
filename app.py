@@ -59,7 +59,7 @@ def obtener_partidos_airtable():
     try:
         url = f"https://api.airtable.com/v0/{st.secrets['airtable']['base_id']}/Partidos"
         headers = {"Authorization": f"Bearer {st.secrets['airtable']['api_key']}"}
-        params = {"view": "Grid view", "sort[0][field]": "ID Partido", "sort[0][direction] : "asc"} 
+        params = {"view": "Grid view", "sort[0][field]": "ID Partido", "sort[0][direction]": "asc"} 
         response = requests.get(url, headers=headers, params=params)
         if response.status_code == 200:
             data = response.json()
