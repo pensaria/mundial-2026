@@ -64,18 +64,29 @@ def obtener_partidos_airtable():
             partidos = []
             for record in data['records']:
                 f = record['fields']
+                
+                # Extraer Banderas
                 bandera_l = f.get("Bandera L")[0].get("url") if f.get("Bandera L") else ""
                 bandera_v = f.get("Bandera V")[0].get("url") if f.get("Bandera V") else ""
+                
+                # --- NUEVO: Extraer Grupo y Ranking ---
+                # Airtable envía los Lookups como listas, tomamos el primer elemento [0]
+                grupo_l = f.get("Grupo (from Equipo Local)")[0] if f.get("Grupo (from Equipo Local)") else "S/G"
+                rank_l = f.get("# Ranking FIFA (from Equipo Local)")[0] if f.get("# Ranking FIFA (from Equipo Local)") else 100
+                rank_v = f.get("# Ranking FIFA (from Equipo Visitante)")[0] if f.get("# Ranking FIFA (from Equipo Visitante)") else 100
                 
                 partidos.append({
                     "ID": f.get("ID Partido"),
                     "Jornada": f.get("Jornada"),
+                    "Grupo": grupo_l, # Usamos el grupo del local para clasificar el partido
                     "Local_ES": f.get("Nombre (from Equipo Local)")[0] if isinstance(f.get("Nombre (from Equipo Local)"), list) else f.get("Nombre (from Equipo Local)"),
                     "Local_EN": f.get("Nombre EN (from Equipo Local)")[0] if isinstance(f.get("Nombre EN (from Equipo Local)"), list) else f.get("Nombre EN (from Equipo Local)"),
                     "Visitante_ES": f.get("Nombre (from Equipo Visitante)")[0] if isinstance(f.get("Nombre (from Equipo Visitante)"), list) else f.get("Nombre (from Equipo Visitante)"),
                     "Visitante_EN": f.get("Nombre EN (from Equipo Visitante)")[0] if isinstance(f.get("Nombre EN (from Equipo Visitante)"), list) else f.get("Nombre EN (from Equipo Visitante)"),
                     "Bandera_L": bandera_l,
                     "Bandera_V": bandera_v,
+                    "Rank_L": rank_l,
+                    "Rank_V": rank_v,
                     "Goles Real L": f.get("Goles Local"),
                     "Goles Real V": f.get("Goles Visitante"),
                     "Fecha_Hora": f.get("Fecha y Hora", f.get("Fecha Hora")), 
