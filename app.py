@@ -66,32 +66,36 @@ def obtener_partidos_airtable():
             partidos = []
             for record in data['records']:
                 f = record['fields']
+                
+                # Extraer Banderas y Datos de Grupo/Rank
                 bandera_l = f.get("Bandera L")[0].get("url") if f.get("Bandera L") else ""
                 bandera_v = f.get("Bandera V")[0].get("url") if f.get("Bandera V") else ""
-                grupo_l = f.get("Grupo (from Equipo Local)")[0] if f.get("Grupo (from Equipo Local)") else "S/G"
+                
+                # IMPORTANTE: Aquí buscamos el grupo real que viene de la tabla Equipos
+                grupo_real = f.get("Grupo (from Equipo Local)")[0] if f.get("Grupo (from Equipo Local)") else None
+                
                 rank_l = f.get("# Ranking FIFA (from Equipo Local)")[0] if f.get("# Ranking FIFA (from Equipo Local)") else 100
                 rank_v = f.get("# Ranking FIFA (from Equipo Visitante)")[0] if f.get("# Ranking FIFA (from Equipo Visitante)") else 100
                 
                 partidos.append({
                     "ID": f.get("ID Partido"),
-                    "Jornada": f.get("Jornada"),
-                    "Grupo": grupo_l,
+                    "Grupo": grupo_real,
                     "Local_ES": f.get("Nombre (from Equipo Local)")[0] if isinstance(f.get("Nombre (from Equipo Local)"), list) else f.get("Nombre (from Equipo Local)"),
-                    "Local_EN": f.get("Nombre EN (from Equipo Local)")[0] if isinstance(f.get("Nombre EN (from Equipo Local)"), list) else f.get("Nombre EN (from Equipo Local)"),
                     "Visitante_ES": f.get("Nombre (from Equipo Visitante)")[0] if isinstance(f.get("Nombre (from Equipo Visitante)"), list) else f.get("Nombre (from Equipo Visitante)"),
-                    "Visitante_EN": f.get("Nombre EN (from Equipo Visitante)")[0] if isinstance(f.get("Nombre EN (from Equipo Visitante)"), list) else f.get("Nombre EN (from Equipo Visitante)"),
-                    "Bandera_L": bandera_l,
-                    "Bandera_V": bandera_v,
-                    "Rank_L": rank_l,
-                    "Rank_V": rank_v,
+                    "Bandera_L": bandera_l, "Bandera_V": bandera_v,
+                    "Rank_L": rank_l, "Rank_V": rank_v,
+                    "FP_L": f.get("Fair Play L", 0), # Leemos directamente tu nueva columna
+                    "FP_V": f.get("Fair Play V", 0),
                     "Goles Real L": f.get("Goles Local"),
                     "Goles Real V": f.get("Goles Visitante"),
-                    "Fecha_Hora": f.get("Fecha y Hora", f.get("Fecha Hora")), 
-                    "Airtable_ID": record['id']
+                    "Fecha_Hora": f.get("Fecha y Hora", f.get("Fecha Hora")),
+                    "Jornada": f.get("Jornada")
                 })
             return partidos
         return []
-    except: return []
+    except Exception as e:
+        st.error(f"Error Airtable: {e}")
+        return []
 
 def guardar_prediccion_supabase(user, partido_id, gl, gv):
     data = {"usuario": user, "partido_id": str(partido_id), "goles_local": gl, "goles_visitante": gv}
@@ -207,71 +211,70 @@ if st.session_state.connected:
                 st.success("Saved!")
                 st.balloons()
 
-    elif menu == t["nav_results"]:
+elif menu == t["nav_results"]:
         st.subheader(t["nav_results"])
         partidos = obtener_partidos_airtable()
-        if not partidos: st.info("No data.")
+        
+        if not partidos:
+            st.info("No hay datos cargados en Airtable.")
         else:
             stats_global = {}
-            partidos_jugados = []
             for p in partidos:
-                if p['Goles Real L'] is not None and p['Goles Real V'] is not None:
+                # Solo procesar si hay goles y el equipo tiene grupo asignado
+                if p['Goles Real L'] is not None and p['Goles Real V'] is not None and p['Grupo']:
                     g, l, v = p['Grupo'], p['Local_ES'], p['Visitante_ES']
                     gl, gv = int(p['Goles Real L']), int(p['Goles Real V'])
-                    partidos_jugados.append({'L': l, 'V': v, 'GL': gl, 'GV': gv, 'Grupo': g})
-                    for eq, rnk in [(l, p['Rank_L']), (v, p['Rank_V'])]:
+                    
+                    for eq, rnk, fp in [(l, p['Rank_L'], p['FP_L']), (v, p['Rank_V'], p['FP_V'])]:
                         if eq not in stats_global:
-                            stats_global[eq] = {'Equipo': eq, 'PJ':0, 'PTS':0, 'GF':0, 'GC':0, 'DG':0, 'Rank': rnk, 'Grupo': g}
+                            stats_global[eq] = {'Equipo': eq, 'PJ':0, 'PTS':0, 'GF':0, 'GC':0, 'DG':0, 'Rank': rnk, 'Grupo': g, 'FP': 0}
+                        stats_global[eq]['FP'] += fp
+
                     stats_global[l]['PJ'] += 1; stats_global[v]['PJ'] += 1
                     stats_global[l]['GF'] += gl; stats_global[l]['GC'] += gv
                     stats_global[v]['GF'] += gv; stats_global[v]['GC'] += gl
+                    
                     if gl > gv: stats_global[l]['PTS'] += 3
                     elif gl < gv: stats_global[v]['PTS'] += 3
                     else: stats_global[l]['PTS'] += 1; stats_global[v]['PTS'] += 1
+                    
                     stats_global[l]['DG'] = stats_global[l]['GF'] - stats_global[l]['GC']
                     stats_global[v]['DG'] = stats_global[v]['GF'] - stats_global[v]['GC']
 
+            # Agrupar por ID de Grupo
             grupos_ids = sorted(list(set([s['Grupo'] for s in stats_global.values()])))
-            tablas_finales_por_grupo = {}
+            tablas_finales = {}
 
             for g_id in grupos_ids:
-                st.write(f"#### GRUPO {g_id}")
-                equipos_grupo = [s for s in stats_global.values() if s['Grupo'] == g_id]
+                st.write(f"### GRUPO {g_id}")
+                eq_grupo = [s for s in stats_global.values() if s['Grupo'] == g_id]
                 
-                def resolver_empates_fifa(lista_equipos):
-                    lista_equipos.sort(key=lambda x: x['PTS'], reverse=True)
-                    resultado = []
-                    for pts, grupo_empate in groupby(lista_equipos, key=lambda x: x['PTS']):
-                        empatados = list(grupo_empate)
-                        if len(empatados) > 1:
-                            nombres = [e['Equipo'] for e in empatados]
-                            mini = {nom: {'mPTS':0, 'mDG':0, 'mGF':0} for nom in nombres}
-                            for pj in partidos_jugados:
-                                if pj['L'] in nombres and pj['V'] in nombres:
-                                    if pj['GL'] > pj['GV']: mini[pj['L']]['mPTS'] += 3
-                                    elif pj['GL'] < pj['GV']: mini[pj['V']]['mPTS'] += 3
-                                    else: mini[pj['L']]['mPTS'] += 1; mini[pj['V']]['mPTS'] += 1
-                                    mini[pj['L']]['mDG'] += (pj['GL'] - pj['GV'])
-                                    mini[pj['V']]['mDG'] += (pj['GV'] - pj['GL'])
-                                    mini[pj['L']]['mGF'] += pj['GL']
-                                    mini[pj['V']]['mGF'] += pj['GV']
-                            empatados.sort(key=lambda x: (mini[x['Equipo']]['mPTS'], mini[x['Equipo']]['mDG'], mini[x['Equipo']]['mGF'], x['DG'], x['GF'], -x['Rank']), reverse=True)
-                        resultado.extend(empatados)
-                    return resultado
+                # Ordenamiento FIFA: Puntos > DG > GF > FP > Rank
+                # El Rank se pone negativo porque el código ordena de mayor a menor, 
+                # y en el ranking el número 1 es mejor que el 100.
+                eq_grupo.sort(key=lambda x: (x['PTS'], x['DG'], x['GF'], x['FP'], -x['Rank']), reverse=True)
+                
+                tablas_finales[g_id] = eq_grupo
+                st.table(pd.DataFrame(eq_grupo)[['Equipo', 'PJ', 'PTS', 'DG', 'GF', 'FP']])
 
-                tabla_ordenada = resolver_empates_fifa(equipos_grupo)
-                tablas_finales_por_grupo[g_id] = tabla_ordenada
-                st.table(pd.DataFrame(tabla_ordenada)[['Equipo', 'PJ', 'PTS', 'DG', 'GF']])
-
+            # --- MEJORES TERCEROS ---
             st.divider()
-            st.subheader("🥉 Mejores Terceros / Best Third Places")
-            terceros = []
-            for g_id in grupos_ids:
-                if len(tablas_finales_por_grupo[g_id]) >= 3:
-                    terceros.append(tablas_finales_por_grupo[g_id][2])
-            if terceros:
-                df_3 = pd.DataFrame(terceros).sort_values(by=['PTS', 'DG', 'GF', 'Rank'], ascending=[False, False, False, True]).reset_index(drop=True)
-                st.dataframe(df_3[['Equipo', 'Grupo', 'PTS', 'DG', 'GF']].style.apply(lambda x: ['background-color: rgba(52, 152, 219, 0.2)' if x.name < 8 else '' for _ in x], axis=1))
+            st.subheader("🥉 Tabla de Terceros Lugares")
+            terceros_lista = []
+            for g in grupos_ids:
+                if len(tablas_finales[g]) >= 3:
+                    terceros_lista.append(tablas_finales[g][2]) # El que quedó 3ro en su grupo
+            
+            if terceros_lista:
+                df_3 = pd.DataFrame(terceros_lista).sort_values(
+                    by=['PTS', 'DG', 'GF', 'FP', 'Rank'], 
+                    ascending=[False, False, False, False, True]
+                ).reset_index(drop=True)
+                
+                def highlight_top8(s):
+                    return ['background-color: rgba(46, 204, 113, 0.3)' if s.name < 8 else '' for _ in s]
+                
+                st.dataframe(df_3[['Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'FP']].style.apply(highlight_top8, axis=1))
 
     else: st.info("Próximamente / Coming soon")
 
