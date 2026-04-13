@@ -24,7 +24,8 @@ texts = {
         "time_left": "⏳ Tiempo restante:",
         "closed": "🔒 Jornada Cerrada",
         "online": "✅ Conectado",
-        "logout": "Cerrar Sesión"
+        "logout": "Cerrar Sesión",
+        "login_btn": "Iniciar sesión con Google"
     },
     "English": {
         "nav_home": "🏠 Home",
@@ -40,7 +41,8 @@ texts = {
         "time_left": "⏳ Time left:",
         "closed": "🔒 Round Closed",
         "online": "✅ Online",
-        "logout": "Logout"
+        "logout": "Logout",
+        "login_btn": "Login with Google"
     }
 }
 
@@ -62,7 +64,6 @@ def obtener_partidos_airtable():
             partidos = []
             for record in data['records']:
                 f = record['fields']
-                # Extraer URLs de banderas de los Lookups
                 bandera_l = f.get("Bandera L")[0].get("url") if f.get("Bandera L") else ""
                 bandera_v = f.get("Bandera V")[0].get("url") if f.get("Bandera V") else ""
                 
@@ -170,7 +171,6 @@ if st.session_state.connected:
         j_sel = st.selectbox("Jornada / Round:", jornadas)
         
         partidos_f = [p for p in partidos if p['Jornada'] == j_sel]
-        # Lógica de bloqueo (6h antes)
         zona_sofia = ZoneInfo("Europe/Sofia")
         ahora = datetime.now(zona_sofia)
         fechas_j = [datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia) for p in partidos_f if p['Fecha_Hora']]
@@ -208,4 +208,5 @@ else:
     client_id = st.secrets["google_oauth"]["client_id"]
     redirect_uri = st.secrets["google_oauth"]["redirect_uri"]
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode({'client_id': client_id, 'redirect_uri': redirect_uri, 'response_type': 'code', 'scope': 'openid email profile', 'prompt': 'select_account'})}"
+    # Corregido: Ahora usa la llave que sí existe en el diccionario
     st.link_button(texts["Español"]["login_btn"], auth_url, type="primary")
