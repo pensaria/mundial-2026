@@ -61,31 +61,33 @@ def obtener_partidos_airtable():
         headers = {"Authorization": f"Bearer {st.secrets['airtable']['api_key']}"}
         params = {"view": "Grid view", "sort[0][field]": "ID Partido", "sort[0][direction]": "asc"} 
         response = requests.get(url, headers=headers, params=params)
+        
         if response.status_code == 200:
             data = response.json()
             partidos = []
             for record in data['records']:
                 f = record['fields']
                 
-                # --- BUSCADOR ULTRA-REFORZADO DE GRUPO ---
-                # Buscamos en orden de prioridad los nombres de columnas
-                grupo_raw = (
-                    f.get("Grupo ID (from Equipo Local)") or 
-                    f.get("Grupo (from Equipo Local)") or 
-                    f.get("Grupo ID") or 
-                    f.get("Grupo")
-                )
-                
-                if isinstance(grupo_raw, list) and len(grupo_raw) > 0:
-                    grupo_real = str(grupo_raw[0]).strip()
-                elif grupo_raw:
-                    grupo_real = str(grupo_raw).strip()
-                else:
-                    # Si sigue sin aparecer, intentamos pescar cualquier campo que diga "Grupo"
-                    grupo_real = next((str(v[0]) if isinstance(v, list) else str(v)) 
-                                    for k, v in f.items() if "Grupo" in k) if any("Grupo" in k for k in f.keys()) else "Definir"
+                # --- EXTRACCIÓN DE GRUPO ---
+                # Buscamos la nueva columna que vas a crear en Partidos
+                g_raw = f.get("Grupo")
+                grupo_real = "Definir"
+                if isinstance(g_raw, list) and len(g_raw) > 0:
+                    grupo_real = str(g_raw[0]).strip()
+                elif g_raw:
+                    grupo_real = str(g_raw).strip()
 
-                # Banderas
+                # --- EXTRACCIÓN DE RANKING ---
+                # Como no lo tienes en Partidos, el código intentará buscarlo. 
+                # NOTA: Para que funcione el desempate FIFA, te sugiero crear 
+                # también un Lookup de 'Ranking FIFA' en la tabla Partidos.
+                r_l = f.get("Ranking FIFA (from Equipo Local)")
+                r_v = f.get("Ranking FIFA (from Equipo Visitante)")
+                
+                rank_l = r_l[0] if isinstance(r_l, list) else (r_l if r_l else 100)
+                rank_v = r_v[0] if isinstance(r_v, list) else (r_v if r_v else 100)
+
+                # --- BANDERAS ---
                 bandera_l = f.get("Bandera L")[0].get("url") if f.get("Bandera L") else ""
                 bandera_v = f.get("Bandera V")[0].get("url") if f.get("Bandera V") else ""
 
@@ -96,14 +98,15 @@ def obtener_partidos_airtable():
                     "Local_EN": f.get("Nombre EN (from Equipo Local)")[0] if f.get("Nombre EN (from Equipo Local)") else f.get("Nombre (from Equipo Local)"),
                     "Visitante_ES": f.get("Nombre (from Equipo Visitante)")[0] if isinstance(f.get("Nombre (from Equipo Visitante)"), list) else f.get("Nombre (from Equipo Visitante)"),
                     "Visitante_EN": f.get("Nombre EN (from Equipo Visitante)")[0] if f.get("Nombre EN (from Equipo Visitante)") else f.get("Nombre (from Equipo Visitante)"),
-                    "Bandera_L": bandera_l, "Bandera_V": bandera_v,
-                    "Rank_L": f.get("# Ranking FIFA (from Equipo Local)")[0] if f.get("# Ranking FIFA (from Equipo Local)") else 100,
-                    "Rank_V": f.get("# Ranking FIFA (from Equipo Visitante)")[0] if f.get("# Ranking FIFA (from Equipo Visitante)") else 100,
+                    "Bandera_L": bandera_l, 
+                    "Bandera_V": bandera_v,
+                    "Rank_L": rank_l, 
+                    "Rank_V": rank_v,
                     "FP_L": f.get("Fair Play L", 0),
                     "FP_V": f.get("Fair Play V", 0),
                     "Goles Real L": f.get("Goles Local"),
                     "Goles Real V": f.get("Goles Visitante"),
-                    "Fecha_Hora": f.get("Fecha y Hora", f.get("Fecha Hora")),
+                    "Fecha_Hora": f.get("Fecha y Hora"),
                     "Jornada": f.get("Jornada")
                 })
             return partidos
