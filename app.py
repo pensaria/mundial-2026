@@ -263,13 +263,29 @@ if st.session_state.connected:
                 df_g = pd.DataFrame(eq_grupo)[['Equipo', 'PJ', 'PTS', 'DG', 'GF', 'FP']]
                 st.dataframe(df_g, use_container_width=True, hide_index=True)
 
+           # --- MEJORES TERCEROS ---
             st.divider()
             st.subheader("🥉 Best Third Places" if lang == "English" else "🥉 Mejores Terceros")
             terceros_lista = [tablas_finales[g][2] for g in grupos_ids if len(tablas_finales[g]) >= 3]
+            
             if terceros_lista:
-                df_3 = pd.DataFrame(terceros_lista).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True]).reset_index(drop=True)
-                st.dataframe(df_3[['Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'FP']], use_container_width=True, hide_index=True)
-
+                # Ordenamos a todos los terceros del mundial
+                df_3 = pd.DataFrame(terceros_lista).sort_values(
+                    by=['PTS', 'DG', 'GF', 'FP', 'Rank'], 
+                    ascending=[False, False, False, False, True]
+                ).reset_index(drop=True)
+                
+                # Función para aplicar el color verde a los primeros 8
+                def highlight_top8(s):
+                    return ['background-color: rgba(46, 204, 113, 0.3)' if s.name < 8 else '' for _ in s]
+                
+                # Aplicamos el estilo y mostramos
+                st.dataframe(
+                    df_3[['Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'FP']].style.apply(highlight_top8, axis=1), 
+                    use_container_width=True, 
+                    hide_index=True
+                )
+                
             # ELIMINATORIAS COMPLETAS
             st.divider()
             st.subheader("🏆 Knockout Stage" if lang == "English" else "🏆 Fase de Eliminatorias")
