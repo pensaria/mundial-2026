@@ -68,26 +68,16 @@ def obtener_partidos_airtable():
             for record in data['records']:
                 f = record['fields']
                 
-                # --- EXTRACCIÓN DE GRUPO ---
-                # Buscamos la nueva columna que vas a crear en Partidos
+                # Grupo y Ranking
                 g_raw = f.get("Grupo")
-                grupo_real = "Definir"
-                if isinstance(g_raw, list) and len(g_raw) > 0:
-                    grupo_real = str(g_raw[0]).strip()
-                elif g_raw:
-                    grupo_real = str(g_raw).strip()
-
-                # --- EXTRACCIÓN DE RANKING ---
-                # Como no lo tienes en Partidos, el código intentará buscarlo. 
-                # NOTA: Para que funcione el desempate FIFA, te sugiero crear 
-                # también un Lookup de 'Ranking FIFA' en la tabla Partidos.
+                grupo_real = str(g_raw[0]).strip() if isinstance(g_raw, list) and g_raw else (str(g_raw).strip() if g_raw else "Definir")
+                
                 r_l = f.get("Ranking FIFA (from Equipo Local)")
                 r_v = f.get("Ranking FIFA (from Equipo Visitante)")
-                
                 rank_l = r_l[0] if isinstance(r_l, list) else (r_l if r_l else 100)
                 rank_v = r_v[0] if isinstance(r_v, list) else (r_v if r_v else 100)
 
-                # --- BANDERAS ---
+                # Banderas
                 bandera_l = f.get("Bandera L")[0].get("url") if f.get("Bandera L") else ""
                 bandera_v = f.get("Bandera V")[0].get("url") if f.get("Bandera V") else ""
 
@@ -98,23 +88,18 @@ def obtener_partidos_airtable():
                     "Local_EN": f.get("Nombre EN (from Equipo Local)")[0] if f.get("Nombre EN (from Equipo Local)") else f.get("Nombre (from Equipo Local)"),
                     "Visitante_ES": f.get("Nombre (from Equipo Visitante)")[0] if isinstance(f.get("Nombre (from Equipo Visitante)"), list) else f.get("Nombre (from Equipo Visitante)"),
                     "Visitante_EN": f.get("Nombre EN (from Equipo Visitante)")[0] if f.get("Nombre EN (from Equipo Visitante)") else f.get("Nombre (from Equipo Visitante)"),
-                    "Bandera_L": bandera_l, 
-                    "Bandera_V": bandera_v,
-                    "Rank_L": rank_l, 
-                    "Rank_V": rank_v,
-                    "FP_L": f.get("Fair Play L", 0),
-                    "FP_V": f.get("Fair Play V", 0),
-                    "Goles Real L": f.get("Goles Local"),
-                    "Goles Real V": f.get("Goles Visitante"),
-                    "Fecha_Hora": f.get("Fecha y Hora"),
-                    "Jornada": f.get("Jornada")
+                    "Bandera_L": bandera_l, "Bandera_V": bandera_v,
+                    "Rank_L": rank_l, "Rank_V": rank_v,
+                    "FP_L": f.get("Fair Play L", 0), "FP_V": f.get("Fair Play V", 0),
+                    "Goles Real L": f.get("Goles Local"), "Goles Real V": f.get("Goles Visitante"),
+                    "Fecha_Hora": f.get("Fecha y Hora"), "Jornada": f.get("Jornada")
                 })
             return partidos
         return []
     except Exception as e:
         st.error(f"Error Airtable: {e}")
         return []
-        
+
 def guardar_prediccion_supabase(user, partido_id, gl, gv):
     data = {"usuario": user, "partido_id": str(partido_id), "goles_local": gl, "goles_visitante": gv}
     supabase.table("predicciones").upsert(data, on_conflict="usuario, partido_id").execute()
@@ -151,6 +136,7 @@ def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
     """
     return html
 
+# --- LÓGICA DE SESIÓN ---
 if "connected" not in st.session_state: st.session_state.connected = False
 if "code" in st.query_params: st.session_state.connected = True
 if "menu_sel_radio" not in st.session_state: st.session_state.menu_sel_radio = "🏠 Inicio"
@@ -169,6 +155,7 @@ if st.session_state.connected:
 
     st.title(t["title"])
 
+    # 1. INICIO
     if menu == t["nav_home"]:
         col1, col2 = st.columns([2, 1])
         with col1:
@@ -196,6 +183,7 @@ if st.session_state.connected:
                         st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang), unsafe_allow_html=True)
             else: st.success(t["no_matches"])
 
+    # 2. JUGAR
     elif menu == t["nav_play"]:
         st.subheader(t["nav_play"])
         email_user = "usuario_prueba@gmail.com"
@@ -231,13 +219,13 @@ if st.session_state.connected:
                     gv = c4.number_input("V", 0, 20, v_v, key=f"v_{p['ID']}", label_visibility="collapsed", disabled=bloqueo)
                     with c5: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
             
-            # EL BOTÓN DEBE ESTAR AQUÍ DENTRO (MISMA INDENTACIÓN)
             if st.form_submit_button(t["save_btn"], use_container_width=True, disabled=bloqueo):
                 for p in partidos_f:
                     guardar_prediccion_supabase(email_user, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
                 st.success("Saved!")
                 st.balloons()
 
+    # 3. RESULTADOS
     elif menu == t["nav_results"]:
         st.subheader(t["nav_results"])
         partidos = obtener_partidos_airtable()
@@ -245,39 +233,59 @@ if st.session_state.connected:
         else:
             stats_global = {}
             for p in partidos:
-                if p['Goles Real L'] is not None and p['Goles Real V'] is not None and p['Grupo']:
-                    g, l, v = p['Grupo'], p['Local_ES'], p['Visitante_ES']
+                if p['Goles Real L'] is not None and p['Goles Real V'] is not None and p['Grupo'] != "Definir":
+                    g = p['Grupo']
+                    # Nombre dinámico según idioma
+                    l = p['Local_ES'] if lang == "Español" else p['Local_EN']
+                    v = p['Visitante_ES'] if lang == "Español" else p['Visitante_EN']
                     gl, gv = int(p['Goles Real L']), int(p['Goles Real V'])
+                    
                     for eq, rnk, fp in [(l, p['Rank_L'], p['FP_L']), (v, p['Rank_V'], p['FP_V'])]:
                         if eq not in stats_global:
-                            stats_global[eq] = {'Equipo': eq, 'PJ':0, 'PTS':0, 'GF':0, 'GC':0, 'DG':0, 'Rank': rnk, 'Grupo': g, 'FP': 0}
+                            stats_global[eq] = {'Equipo': eq, 'PJ':0, 'PTS':0, 'DG':0, 'GF':0, 'FP': 0, 'Rank': rnk, 'Grupo': g}
                         stats_global[eq]['FP'] += fp
                     stats_global[l]['PJ'] += 1; stats_global[v]['PJ'] += 1
-                    stats_global[l]['GF'] += gl; stats_global[l]['GC'] += gv
-                    stats_global[v]['GF'] += gv; stats_global[v]['GC'] += gl
+                    stats_global[l]['GF'] += gl; stats_global[v]['GF'] += gv
                     if gl > gv: stats_global[l]['PTS'] += 3
                     elif gl < gv: stats_global[v]['PTS'] += 3
                     else: stats_global[l]['PTS'] += 1; stats_global[v]['PTS'] += 1
-                    stats_global[l]['DG'] = stats_global[l]['GF'] - stats_global[l]['GC']
-                    stats_global[v]['DG'] = stats_global[v]['GF'] - stats_global[v]['GC']
+                    stats_global[l]['DG'] += (gl - gv)
+                    stats_global[v]['DG'] += (gv - gl)
 
             grupos_ids = sorted(list(set([s['Grupo'] for s in stats_global.values()])))
             tablas_finales = {}
             for g_id in grupos_ids:
-                st.write(f"### GRUPO {g_id}")
+                st.write(f"### GROUP {g_id}" if lang == "English" else f"### GRUPO {g_id}")
                 eq_grupo = [s for s in stats_global.values() if s['Grupo'] == g_id]
                 eq_grupo.sort(key=lambda x: (x['PTS'], x['DG'], x['GF'], x['FP'], -x['Rank']), reverse=True)
                 tablas_finales[g_id] = eq_grupo
-                st.table(pd.DataFrame(eq_grupo)[['Equipo', 'PJ', 'PTS', 'DG', 'GF', 'FP']])
+                # DF alineado con ancho completo
+                df_g = pd.DataFrame(eq_grupo)[['Equipo', 'PJ', 'PTS', 'DG', 'GF', 'FP']]
+                st.dataframe(df_g, use_container_width=True, hide_index=True)
 
             st.divider()
-            st.subheader("🥉 Tabla de Terceros Lugares")
+            st.subheader("🥉 Best Third Places" if lang == "English" else "🥉 Mejores Terceros")
             terceros_lista = [tablas_finales[g][2] for g in grupos_ids if len(tablas_finales[g]) >= 3]
             if terceros_lista:
                 df_3 = pd.DataFrame(terceros_lista).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True]).reset_index(drop=True)
-                def highlight_top8(s):
-                    return ['background-color: rgba(46, 204, 113, 0.3)' if s.name < 8 else '' for _ in s]
-                st.dataframe(df_3[['Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'FP']].style.apply(highlight_top8, axis=1))
+                st.dataframe(df_3[['Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'FP']], use_container_width=True, hide_index=True)
+
+            # ELIMINATORIAS COMPLETAS
+            st.divider()
+            st.subheader("🏆 Knockout Stage" if lang == "English" else "🏆 Fase de Eliminatorias")
+            texto_a_definir = "To be defined..." if lang == "English" else "Por definirse..."
+            
+            # Fila 1
+            c1, c2, c3 = st.columns(3)
+            with c1: st.info(f"**Round of 32 / 16vos** \n\n {texto_a_definir}")
+            with c2: st.info(f"**Round of 16 / 8vos** \n\n {texto_a_definir}")
+            with c3: st.info(f"**Quarter-finals / 4tos** \n\n {texto_a_definir}")
+            
+            # Fila 2
+            c4, c5, c6 = st.columns(3)
+            with c4: st.warning(f"**Semi-finals / Semifinales** \n\n {texto_a_definir}")
+            with c5: st.success(f"**Third Place / 3er Puesto** \n\n {texto_a_definir}")
+            with c6: st.error(f"**GRAND FINAL / GRAN FINAL** \n\n {texto_a_definir}")
 
     else:
         st.info("Próximamente / Coming soon")
