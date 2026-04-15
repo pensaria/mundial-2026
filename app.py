@@ -194,16 +194,33 @@ if st.session_state.connected:
             for p in partidos_data:
                 gl, gv = st.session_state.get(f"sl_{p['ID']}", 0), st.session_state.get(f"sv_{p['ID']}", 0)
                 l_n, v_n = (p['Local_ES'] if lang=="Español" else p['Local_EN']), (p['Visitante_ES'] if lang=="Español" else p['Visitante_EN'])
-                for eq, g_l, g_c, rnk, bnd, grp in [(l_n, gl, gv, p['Rank_L'], p['Bandera_L'], p['Grupo']), (v_n, gv, gl, p['Rank_V'], p['Bandera_V'], p['Grupo'])]:
-                    if eq not in sim_stats: sim_stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP':st.session_state.sim_fp.get(eq, 0)}
-                    sim_stats[eq]['GF'] += g_l; sim_stats[eq]['DG'] += (g_l - g_c)
+                for eq, g_l, g_c, rnk, bnd, grp, fp_base in [(l_n, gl, gv, p['Rank_L'], p['Bandera_L'], p['Grupo'], p['FP_L']), (v_n, gv, gl, p['Rank_V'], p['Bandera_V'], p['Grupo'], p['FP_V'])]:
+                    if eq not in sim_stats: 
+                        sim_stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP': fp_base}
+                    sim_stats[eq]['GF'] += g_l
+                    sim_stats[eq]['DG'] += (g_l - g_c)
                     if g_l > g_c: sim_stats[eq]['PTS'] += 3
                     elif g_l == g_c: sim_stats[eq]['PTS'] += 1
             
             lista_g = sorted(list(set([s['Grupo'] for s in sim_stats.values() if len(str(s['Grupo'])) == 1])))
             g_sel = st.radio("Grupo:", lista_g, horizontal=True)
-            df_s = pd.DataFrame([s for s in sim_stats.values() if s['Grupo'] == g_sel]).sort_values(by=['PTS', 'DG', 'GF', 'Rank'], ascending=[False, False, False, True])
-            st.data_editor(df_s[['Flag', 'Equipo', 'PTS', 'DG', 'GF']], column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, use_container_width=True, key=f"sim_tab_{g_sel}")
+            # Ordenamos por: Puntos, Diferencia de Gol, Goles a Favor, Fair Play (asc) y Ranking (asc)
+            df_s = pd.DataFrame([s for s in sim_stats.values() if s['Grupo'] == g_sel]).sort_values(
+                by=['PTS', 'DG', 'GF', 'FP', 'Rank'], 
+                ascending=[False, False, False, True, True]
+            )
+            
+            st.data_editor(
+                df_s[['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP']], 
+                column_config={
+                    "Flag": st.column_config.ImageColumn(" "),
+                    "FP": st.column_config.NumberColumn("FP", help="Fair Play: Menor puntaje es mejor (tarjetas)")
+                }, 
+                hide_index=True, 
+                disabled=True, 
+                use_container_width=True, 
+                key=f"sim_tab_{g_sel}"
+            )
 
         # --- CRUCES EN EL SIMULADOR ---
         st.divider()
