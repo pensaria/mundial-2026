@@ -275,48 +275,94 @@ if st.session_state.connected:
             c4, c5, c6 = st.columns(3); c4.warning(f"**Semi-finals / Semifinales** \n\n {texto_a_definir}"); c5.success(f"**Third Place / 3er Puesto** \n\n {texto_a_definir}"); c6.error(f"**GRAND FINAL / GRAN FINAL** \n\n {texto_a_definir}")
 
     # --- 4. SIMULADOR ---
-    elif menu == t["nav_sim"]:
+   elif menu == t["nav_sim"]:
         st.subheader(t["nav_sim"])
         partidos = obtener_partidos_airtable()
         
+        # 1. Inicializar estados (Goles y Fair Play)
         if "sim_results" not in st.session_state:
-            st.session_state.sim_results = {
-                p['ID']: {'GL': p['Goles Real L'] if p['Goles Real L'] is not None else 0, 
-                          'GV': p['Goles Real V'] if p['Goles Real V'] is not None else 0} 
-                for p in partidos
-            }
+            st.session_state.sim_results = {p['ID']: {'GL': p['Goles Real L'] or 0, 'GV': p['Goles Real V'] or 0} for p in partidos}
+        if "sim_fp" not in st.session_state:
+            # Buscamos todos los equipos únicos para asignarles su Fair Play simulado
+            equipos_unicos = list(set([p['Local_ES'] for p in partidos] + [p['Visitante_ES'] for p in partidos]))
+            st.session_state.sim_fp = {eq: 0 for eq in equipos_unicos}
 
-        col_btn1, col_btn2, col_btn3 = st.columns(3)
-        with col_btn1:
-            if st.button("♻️ " + ("Reset to Real Results" if lang == "English" else "Restablecer a Resultados Reales"), use_container_width=True):
-                st.session_state.sim_results = {p['ID']: {'GL': p['Goles Real L'] if p['Goles Real L'] is not None else 0, 'GV': p['Goles Real V'] if p['Goles Real V'] is not None else 0} for p in partidos}
+        # --- BOTONES DE ACCIÓN RÁPIDA ---
+        col_b1, col_b2, col_b3 = st.columns(3)
+        with col_b1:
+            if st.button("♻️ " + ("Reset Real" if lang == "English" else "Reset Real"), use_container_width=True):
+                st.session_state.sim_results = {p['ID']: {'GL': p['Goles Real L'] or 0, 'GV': p['Goles Real V'] or 0} for p in partidos}
                 st.rerun()
-        with col_btn2:
-            if st.button("🧼 " + ("Clear All (0-0)" if lang == "English" else "Borrar Todo (0-0)"), use_container_width=True):
+        with col_b2:
+            if st.button("🧼 0 - 0", use_container_width=True):
                 st.session_state.sim_results = {p['ID']: {'GL': 0, 'GV': 0} for p in partidos}
-                st.rerun()
-        with col_btn3:
-            if st.button("🧹 " + ("Keep Real / Clear Sim" if lang == "English" else "Mantener Real / Borrar Sim"), use_container_width=True):
-                for p in partidos:
-                    if p['Goles Real L'] is None: st.session_state.sim_results[p['ID']] = {'GL': 0, 'GV': 0}
                 st.rerun()
 
         st.divider()
-        jornadas = sorted(list(set([p['Jornada'] for p in partidos if p['Jornada']])))
-        j_sel_sim = st.selectbox("Simulate Round / Simular Jornada:", jornadas, key="sim_j")
-        
-        for p in [p for p in partidos if p['Jornada'] == j_sel_sim]:
-            with st.container(border=True):
-                c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                with c1: st.write(p['Local_ES'] if lang == "Español" else p['Local_EN'])
-                gl = c2.number_input("L", 0, 20, int(st.session_state.sim_results[p['ID']]['GL']), key=f"sim_l_{p['ID']}", label_visibility="collapsed")
-                c3.write(":")
-                gv = c4.number_input("V", 0, 20, int(st.session_state.sim_results[p['ID']]['GV']), key=f"sim_v_{p['ID']}", label_visibility="collapsed")
-                with c5: st.write(p['Visitante_ES'] if lang == "Español" else p['Visitante_EN'])
-                st.session_state.sim_results[p['ID']] = {'GL': gl, 'GV': gv}
 
-        if st.button("🏆 " + ("Generate Simulated Bracket" if lang == "English" else "Generar Cuadro Simulado"), type="primary", use_container_width=True):
-            st.write("### 🚧 Motor de Cruces en Construcción")
+        # --- DISEÑO DE DOS COLUMNAS ---
+        col_partidos, col_tablas = st.columns([1.2, 1], gap="large")
+
+        with col_partidos:
+            st.markdown("### ⚽ " + ("Simulate Matches" if lang == "English" else "Simular Partidos"))
+            jornadas = sorted(list(set([p['Jornada'] for p in partidos if p['Jornada']])))
+            j_sim = st.selectbox("Jornada:", jornadas, key="j_sim_sel")
+            
+            for p in [p for p in partidos if p['Jornada'] == j_sim]:
+                with st.container(border=True):
+                    c1, c2, c3, c4, c5 = st.columns([2, 1, 0.5, 1, 2])
+                    with c1: st.caption(p['Local_ES'] if lang == "Español" else p['Local_EN'])
+                    gl = c2.number_input("", 0, 20, int(st.session_state.sim_results[p['ID']]['GL']), key=f"s_l_{p['ID']}", label_visibility="collapsed")
+                    c3.write(":")
+                    gv = c4.number_input("", 0, 20, int(st.session_state.sim_results[p['ID']]['GV']), key=f"s_v_{p['ID']}", label_visibility="collapsed")
+                    with c5: st.caption(p['Visitante_ES'] if lang == "Español" else p['Visitante_EN'])
+                    st.session_state.sim_results[p['ID']] = {'GL': gl, 'GV': gv}
+
+        with col_tablas:
+            st.markdown("### 📊 " + ("Live Standing" if lang == "English" else "Posiciones en Vivo"))
+            
+            # Cálculo de la tabla simulada
+            sim_stats = {}
+            for p in partidos:
+                res = st.session_state.sim_results[p['ID']]
+                g, l, v = p['Grupo'], p['Local_ES'] if lang=="Español" else p['Local_EN'], p['Visitante_ES'] if lang=="Español" else p['Visitante_EN']
+                gl, gv = res['GL'], res['GV']
+                
+                for eq, rnk in [(l, p['Rank_L']), (v, p['Rank_V'])]:
+                    if eq not in sim_stats:
+                        sim_stats[eq] = {'Equipo': eq, 'PJ':0, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': g, 'FP': st.session_state.sim_fp.get(eq, 0)}
+                
+                sim_stats[l]['PJ'] += 1; sim_stats[v]['PJ'] += 1
+                sim_stats[l]['GF'] += gl; sim_stats[v]['GF'] += gv
+                sim_stats[l]['DG'] += (gl - gv); sim_stats[v]['DG'] += (gv - gl)
+                if gl > gv: sim_stats[l]['PTS'] += 3
+                elif gv > gl: sim_stats[v]['PTS'] += 3
+                else: sim_stats[l]['PTS'] += 1; sim_stats[v]['PTS'] += 1
+
+            # Selector de grupo para ver Fair Play y Tabla
+            g_ver = st.radio("Ver Grupo:", sorted(list(set([s['Grupo'] for s in sim_stats.values()]))), horizontal=True)
+            
+            # --- SECCIÓN FAIR PLAY ---
+            st.write("**Fair Play (Points < 0):**")
+            eq_fp = [s for s in sim_stats.values() if s['Grupo'] == g_ver]
+            cols_fp = st.columns(len(eq_fp))
+            for i, eq_data in enumerate(eq_fp):
+                nombre_corto = eq_data['Equipo'][:10]
+                val_fp = cols_fp[i].number_input(f"{nombre_corto}", None, 0, int(st.session_state.sim_fp.get(eq_data['Equipo'], 0)), key=f"fp_sim_{eq_data['Equipo']}")
+                st.session_state.sim_fp[eq_data['Equipo']] = val_fp
+                sim_stats[eq_data['Equipo']]['FP'] = val_fp
+
+            # Mostrar Tabla del Grupo seleccionado
+            df_sim = pd.DataFrame(eq_fp).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
+            st.dataframe(df_sim[['Equipo', 'PTS', 'DG', 'GF', 'FP']], use_container_width=True, hide_index=True)
+
+        # --- 4. LOS CRUCES (A DEFINIR POR LÓGICA DE 3ROS) ---
+        st.divider()
+        st.subheader("🏁 " + ("Simulated Knockout Stage" if lang == "English" else "Cruces Simulados"))
+        
+        # Aquí es donde el motor de mejores terceros entra en acción
+        # Por ahora, mostramos el aviso para la siguiente fase del desarrollo
+        st.warning("Próximo paso: Programar la matriz de cruces A1 vs C3/D3/E3...")
 
     else:
         st.info("Coming soon / Próximamente")
