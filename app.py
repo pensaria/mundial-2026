@@ -68,7 +68,6 @@ def obtener_partidos_airtable():
             for record in data['records']:
                 f = record['fields']
                 
-                # Grupo y Ranking
                 g_raw = f.get("Grupo")
                 grupo_real = str(g_raw[0]).strip() if isinstance(g_raw, list) and g_raw else (str(g_raw).strip() if g_raw else "Definir")
                 
@@ -77,7 +76,6 @@ def obtener_partidos_airtable():
                 rank_l = r_l[0] if isinstance(r_l, list) else (r_l if r_l else 100)
                 rank_v = r_v[0] if isinstance(r_v, list) else (r_v if r_v else 100)
 
-                # Banderas
                 bandera_l = f.get("Bandera L")[0].get("url") if f.get("Bandera L") else ""
                 bandera_v = f.get("Bandera V")[0].get("url") if f.get("Bandera V") else ""
 
@@ -235,7 +233,6 @@ if st.session_state.connected:
             for p in partidos:
                 if p['Goles Real L'] is not None and p['Goles Real V'] is not None and p['Grupo'] != "Definir":
                     g = p['Grupo']
-                    # Nombre dinámico según idioma
                     l = p['Local_ES'] if lang == "Español" else p['Local_EN']
                     v = p['Visitante_ES'] if lang == "Español" else p['Visitante_EN']
                     gl, gv = int(p['Goles Real L']), int(p['Goles Real V'])
@@ -259,52 +256,70 @@ if st.session_state.connected:
                 eq_grupo = [s for s in stats_global.values() if s['Grupo'] == g_id]
                 eq_grupo.sort(key=lambda x: (x['PTS'], x['DG'], x['GF'], x['FP'], -x['Rank']), reverse=True)
                 tablas_finales[g_id] = eq_grupo
-                # DF alineado con ancho completo
                 df_g = pd.DataFrame(eq_grupo)[['Equipo', 'PJ', 'PTS', 'DG', 'GF', 'FP']]
                 st.dataframe(df_g, use_container_width=True, hide_index=True)
 
-           # --- MEJORES TERCEROS ---
             st.divider()
             st.subheader("🥉 Best Third Places" if lang == "English" else "🥉 Mejores Terceros")
             terceros_lista = [tablas_finales[g][2] for g in grupos_ids if len(tablas_finales[g]) >= 3]
-            
             if terceros_lista:
-                # Ordenamos a todos los terceros del mundial
-                df_3 = pd.DataFrame(terceros_lista).sort_values(
-                    by=['PTS', 'DG', 'GF', 'FP', 'Rank'], 
-                    ascending=[False, False, False, False, True]
-                ).reset_index(drop=True)
-                
-                # Función para aplicar el color verde a los primeros 8
+                df_3 = pd.DataFrame(terceros_lista).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True]).reset_index(drop=True)
                 def highlight_top8(s):
                     return ['background-color: rgba(46, 204, 113, 0.3)' if s.name < 8 else '' for _ in s]
-                
-                # Aplicamos el estilo y mostramos
-                st.dataframe(
-                    df_3[['Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'FP']].style.apply(highlight_top8, axis=1), 
-                    use_container_width=True, 
-                    hide_index=True
-                )
-                
-            # ELIMINATORIAS COMPLETAS
+                st.dataframe(df_3[['Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'FP']].style.apply(highlight_top8, axis=1), use_container_width=True, hide_index=True)
+
             st.divider()
             st.subheader("🏆 Knockout Stage" if lang == "English" else "🏆 Fase de Eliminatorias")
             texto_a_definir = "To be defined..." if lang == "English" else "Por definirse..."
-            
-            # Fila 1
-            c1, c2, c3 = st.columns(3)
-            with c1: st.info(f"**Round of 32 / 16vos** \n\n {texto_a_definir}")
-            with c2: st.info(f"**Round of 16 / 8vos** \n\n {texto_a_definir}")
-            with c3: st.info(f"**Quarter-finals / 4tos** \n\n {texto_a_definir}")
-            
-            # Fila 2
-            c4, c5, c6 = st.columns(3)
-            with c4: st.warning(f"**Semi-finals / Semifinales** \n\n {texto_a_definir}")
-            with c5: st.success(f"**Third Place / 3er Puesto** \n\n {texto_a_definir}")
-            with c6: st.error(f"**GRAND FINAL / GRAN FINAL** \n\n {texto_a_definir}")
+            c1, c2, c3 = st.columns(3); c1.info(f"**Round of 32 / 16vos** \n\n {texto_a_definir}"); c2.info(f"**Round of 16 / 8vos** \n\n {texto_a_definir}"); c3.info(f"**Quarter-finals / 4tos** \n\n {texto_a_definir}")
+            c4, c5, c6 = st.columns(3); c4.warning(f"**Semi-finals / Semifinales** \n\n {texto_a_definir}"); c5.success(f"**Third Place / 3er Puesto** \n\n {texto_a_definir}"); c6.error(f"**GRAND FINAL / GRAN FINAL** \n\n {texto_a_definir}")
+
+    # --- 4. SIMULADOR ---
+    elif menu == t["nav_sim"]:
+        st.subheader(t["nav_sim"])
+        partidos = obtener_partidos_airtable()
+        
+        if "sim_results" not in st.session_state:
+            st.session_state.sim_results = {
+                p['ID']: {'GL': p['Goles Real L'] if p['Goles Real L'] is not None else 0, 
+                          'GV': p['Goles Real V'] if p['Goles Real V'] is not None else 0} 
+                for p in partidos
+            }
+
+        col_btn1, col_btn2, col_btn3 = st.columns(3)
+        with col_btn1:
+            if st.button("♻️ " + ("Reset to Real Results" if lang == "English" else "Restablecer a Resultados Reales"), use_container_width=True):
+                st.session_state.sim_results = {p['ID']: {'GL': p['Goles Real L'] if p['Goles Real L'] is not None else 0, 'GV': p['Goles Real V'] if p['Goles Real V'] is not None else 0} for p in partidos}
+                st.rerun()
+        with col_btn2:
+            if st.button("🧼 " + ("Clear All (0-0)" if lang == "English" else "Borrar Todo (0-0)"), use_container_width=True):
+                st.session_state.sim_results = {p['ID']: {'GL': 0, 'GV': 0} for p in partidos}
+                st.rerun()
+        with col_btn3:
+            if st.button("🧹 " + ("Keep Real / Clear Sim" if lang == "English" else "Mantener Real / Borrar Sim"), use_container_width=True):
+                for p in partidos:
+                    if p['Goles Real L'] is None: st.session_state.sim_results[p['ID']] = {'GL': 0, 'GV': 0}
+                st.rerun()
+
+        st.divider()
+        jornadas = sorted(list(set([p['Jornada'] for p in partidos if p['Jornada']])))
+        j_sel_sim = st.selectbox("Simulate Round / Simular Jornada:", jornadas, key="sim_j")
+        
+        for p in [p for p in partidos if p['Jornada'] == j_sel_sim]:
+            with st.container(border=True):
+                c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                with c1: st.write(p['Local_ES'] if lang == "Español" else p['Local_EN'])
+                gl = c2.number_input("L", 0, 20, int(st.session_state.sim_results[p['ID']]['GL']), key=f"sim_l_{p['ID']}", label_visibility="collapsed")
+                c3.write(":")
+                gv = c4.number_input("V", 0, 20, int(st.session_state.sim_results[p['ID']]['GV']), key=f"sim_v_{p['ID']}", label_visibility="collapsed")
+                with c5: st.write(p['Visitante_ES'] if lang == "Español" else p['Visitante_EN'])
+                st.session_state.sim_results[p['ID']] = {'GL': gl, 'GV': gv}
+
+        if st.button("🏆 " + ("Generate Simulated Bracket" if lang == "English" else "Generar Cuadro Simulado"), type="primary", use_container_width=True):
+            st.write("### 🚧 Motor de Cruces en Construcción")
 
     else:
-        st.info("Próximamente / Coming soon")
+        st.info("Coming soon / Próximamente")
 
 else:
     st.title("⚽ World Cup 2026")
