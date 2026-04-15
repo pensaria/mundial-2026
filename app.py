@@ -74,12 +74,26 @@ def obtener_predicciones_usuario(user):
 def guardar_prediccion_supabase(user, partido_id, gl, gv):
     supabase.table("predicciones").upsert({"usuario": user, "partido_id": str(partido_id), "goles_local": gl, "goles_visitante": gv}, on_conflict="usuario, partido_id").execute()
 
+def obtener_ranking_global(partidos):
+    res = supabase.table("predicciones").select("*").execute()
+    puntos = {}
+    for p in res.data:
+        user = p['usuario']
+        if user not in puntos: puntos[user] = 0
+        m = next((m for m in partidos if str(m['ID']) == p['partido_id']), None)
+        if m and m['Goles Real L'] is not None:
+            rl, rv, pl, pv = m['Goles Real L'], m['Goles Real V'], p['goles_local'], p['goles_visitante']
+            if rl == pl and rv == pv: puntos[user] += 4
+            elif (rl > rv and pl > pv) or (rl < rv and pl < pv) or (rl == rv and pl == pv): puntos[user] += 2
+    ranking = sorted([{"Usuario": k, "Puntos": v} for k, v in puntos.items()], key=lambda x: x['Puntos'], reverse=True)
+    return ranking
+
 def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
     nombre = nombre_es if lang_choice == "Español" else (nombre_en or nombre_es)
     flex = "row" if align == "left" else "row-reverse"
     return f'<div style="display: flex; align-items: center; flex-direction: {flex}; gap: 10px;"><img src="{url_bandera}" width="30" style="border-radius:2px;"><span>{nombre}</span></div>'
 
-# --- NAVEGACIÓN ---
+# --- SESIÓN ---
 if "connected" not in st.session_state: st.session_state.connected = False
 if "code" in st.query_params: st.session_state.connected = True
 
@@ -87,9 +101,7 @@ if st.session_state.connected:
     lang = st.sidebar.selectbox("🌐", ["Español", "English"])
     t = texts[lang]
     partidos_data = obtener_partidos_airtable()
-    
-    opciones = [t["nav_home"], t["nav_play"], t["nav_results"], t["nav_sim"], t["nav_stadiums"]]
-    menu = st.sidebar.radio("Menu", opciones)
+    menu = st.sidebar.radio("Menu", [t["nav_home"], t["nav_play"], t["nav_results"], t["nav_sim"], t["nav_stadiums"]])
     
     if st.sidebar.button(t["logout"]): st.session_state.connected = False; st.rerun()
 
@@ -98,12 +110,16 @@ if st.session_state.connected:
     # --- 1. INICIO ---
     if menu == t["nav_home"]:
         st.subheader(t["ranking_title"])
-        st.info("Cargando posiciones...")
+        ranking = obtener_ranking_global(partidos_data)
+        if ranking:
+            st.table(pd.DataFrame(ranking))
+        else:
+            st.info("Aún no hay puntos registrados.")
 
     # --- 2. JUGAR ---
     elif menu == t["nav_play"]:
         st.subheader(t["nav_play"])
-        email_user = "usuario_prueba@gmail.com"
+        email_user = "usuario_prueba@gmail.com" # Cambiar por login real
         preds = obtener_predicciones_usuario(email_user)
         jornadas = sorted(list(set([p['Jornada'] for p in partidos_data if p['Jornada']])))
         j_sel = st.selectbox("Jornada:", jornadas)
@@ -120,7 +136,7 @@ if st.session_state.connected:
             if st.form_submit_button(t["save_btn"], use_container_width=True):
                 for p in [p for p in partidos_data if p['Jornada'] == j_sel]:
                     guardar_prediccion_supabase(email_user, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
-                st.success("Saved!"); st.balloons()
+                st.success("¡Pronósticos guardados!"); st.balloons()
 
     # --- 3. RESULTADOS ---
     elif menu == t["nav_results"]:
@@ -139,16 +155,14 @@ if st.session_state.connected:
         for g in grupos:
             st.write(f"### GRUPO {g}")
             df = pd.DataFrame([s for s in stats.values() if s['Grupo'] == g]).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
-            tablas_finales[g] = df.values.tolist()
+            tablas_finales[g] = df
             st.data_editor(df[['Flag', 'Equipo', 'PJ', 'PTS', 'DG', 'GF']], column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, key=f"res_{g}", use_container_width=True)
 
         st.divider()
         st.subheader("🥉 Mejores Terceros")
         terceros = []
         for g in grupos:
-            df_g = pd.DataFrame([s for s in stats.values() if s['Grupo'] == g]).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
-            if len(df_g) >= 3: terceros.append(df_g.iloc[2])
-        
+            if len(tablas_finales[g]) >= 3: terceros.append(tablas_finales[g].iloc[2])
         if terceros:
             df_3 = pd.DataFrame(terceros).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True]).reset_index(drop=True)
             def highlight_3(s): return ['background-color: rgba(46, 204, 113, 0.3)' if s.name < 8 else '' for _ in s]
@@ -157,9 +171,8 @@ if st.session_state.connected:
     # --- 4. SIMULADOR ---
     elif menu == t["nav_sim"]:
         st.subheader(t["nav_sim"])
-        if "sim_res" not in st.session_state: st.session_state.sim_res = {p['ID']: {'L': p['Goles Real L'] or 0, 'V': p['Goles Real V'] or 0} for p in partidos_data}
-        if "sim_fp" not in st.session_state: st.session_state.sim_fp = {p['Local_ES']: 0 for p in partidos_data}
-
+        if "sim_res" not in st.session_state: st.session_res = {p['ID']: {'L': p['Goles Real L'] or 0, 'V': p['Goles Real V'] or 0} for p in partidos_data}
+        
         col_p, col_t = st.columns([1.2, 1], gap="large")
         with col_p:
             j_sim = st.selectbox("Simular Jornada:", sorted(list(set([p['Jornada'] for p in partidos_data if p['Jornada']]))))
@@ -167,25 +180,27 @@ if st.session_state.connected:
                 with st.container(border=True):
                     c1, c2, c3, c4, c5 = st.columns([2, 1, 0.5, 1, 2])
                     c1.write(p['Local_ES'] if lang=="Español" else p['Local_EN'])
-                    st.session_state.sim_res[p['ID']]['L'] = c2.number_input("", 0, 20, int(st.session_state.sim_res[p['ID']]['L']), key=f"sl_{p['ID']}", label_visibility="collapsed")
-                    st.session_state.sim_res[p['ID']]['V'] = c4.number_input("", 0, 20, int(st.session_state.sim_res[p['ID']]['V']), key=f"sv_{p['ID']}", label_visibility="collapsed")
+                    sl = c2.number_input("", 0, 20, int(st.session_state.get(f"sl_{p['ID']}", p['Goles Real L'] or 0)), key=f"sl_{p['ID']}", label_visibility="collapsed")
+                    sv = c4.number_input("", 0, 20, int(st.session_state.get(f"sv_{p['ID']}", p['Goles Real V'] or 0)), key=f"sv_{p['ID']}", label_visibility="collapsed")
                     c5.write(p['Visitante_ES'] if lang=="Español" else p['Visitante_EN'])
-        
+
         with col_t:
+            st.write("### Posiciones en Vivo")
             sim_stats = {}
             for p in partidos_data:
-                res = st.session_state.sim_res[p['ID']]
+                gl = st.session_state.get(f"sl_{p['ID']}", 0)
+                gv = st.session_state.get(f"sv_{p['ID']}", 0)
                 l_n, v_n = (p['Local_ES'] if lang=="Español" else p['Local_EN']), (p['Visitante_ES'] if lang=="Español" else p['Visitante_EN'])
-                for eq, gl, gc, rnk, bnd, grp in [(l_n, res['L'], res['V'], p['Rank_L'], p['Bandera_L'], p['Grupo']), (v_n, res['V'], res['L'], p['Rank_V'], p['Bandera_V'], p['Grupo'])]:
-                    if eq not in sim_stats: sim_stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'FP': st.session_state.sim_fp.get(eq, 0), 'Rank': rnk, 'Grupo': grp}
-                    sim_stats[eq]['GF'] += gl; sim_stats[eq]['DG'] += (gl - gc)
-                    if gl > gc: sim_stats[eq]['PTS'] += 3
-                    elif gl == gc: sim_stats[eq]['PTS'] += 1
+                for eq, g_l, g_c, rnk, bnd, grp in [(l_n, gl, gv, p['Rank_L'], p['Bandera_L'], p['Grupo']), (v_n, gv, gl, p['Rank_V'], p['Bandera_V'], p['Grupo'])]:
+                    if eq not in sim_stats: sim_stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP':0}
+                    sim_stats[eq]['GF'] += g_l; sim_stats[eq]['DG'] += (g_l - g_c)
+                    if g_l > g_c: sim_stats[eq]['PTS'] += 3
+                    elif g_l == g_c: sim_stats[eq]['PTS'] += 1
             
             lista_g = sorted(list(set([s['Grupo'] for s in sim_stats.values() if len(str(s['Grupo'])) == 1])))
-            g_sel = st.radio("Ver Grupo:", lista_g, horizontal=True)
-            df_s = pd.DataFrame([s for s in sim_stats.values() if s['Grupo'] == g_sel]).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
-            st.data_editor(df_s[['Flag', 'Equipo', 'PTS', 'DG', 'GF']], column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, key=f"sim_{g_sel}", use_container_width=True)
+            g_sel = st.radio("Grupo:", lista_g, horizontal=True)
+            df_s = pd.DataFrame([s for s in sim_stats.values() if s['Grupo'] == g_sel]).sort_values(by=['PTS', 'DG', 'GF', 'Rank'], ascending=[False, False, False, True])
+            st.data_editor(df_s[['Flag', 'Equipo', 'PTS', 'DG', 'GF']], column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, use_container_width=True, key=f"sim_tab_{g_sel}")
 
     else: st.info("Próximamente")
 
