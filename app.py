@@ -218,21 +218,26 @@ if st.session_state.connected:
         with col_t:
             st.markdown("### 📊 " + ("Standings & Fair Play" if lang=="English" else "Posiciones y Fair Play"))
             
-            # Cálculo interno previo
+            # --- MOTOR DE CÁLCULO FIFA ---
             sim_stats = {}
             for p in partidos_data:
-                gl, gv = st.session_state.get(f"sl_{p['ID']}", 0), st.session_state.get(f"sv_{p['ID']}", 0)
+                gl = st.session_state.get(f"sl_{p['ID']}", 0)
+                gv = st.session_state.get(f"sv_{p['ID']}", 0)
                 l_n, v_n = (p['Local_ES'] if lang=="Español" else p['Local_EN']), (p['Visitante_ES'] if lang=="Español" else p['Visitante_EN'])
-                for eq, g_l, g_c, rnk, bnd, grp, fp_air in [(l_n, gl, gv, p['Rank_L'], p['Bandera_L'], p['Grupo'], p['FP_L']), (v_n, gv, gl, p['Rank_V'], p['Bandera_V'], p['Grupo'], p['FP_V'])]:
-                    if eq not in sim_stats: sim_stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP_Airtable': fp_air}
-                    sim_stats[eq]['GF'] += g_l; sim_stats[eq]['DG'] += (g_l - g_c)
-                    if g_l > g_c: sim_stats[eq]['PTS'] += 3
-                    elif g_l == g_c: sim_stats[eq]['PTS'] += 1
-            
+                
+                for eq, g_f, g_c, rnk, bnd, grp, fp_air in [(l_n, gl, gv, p['Rank_L'], p['Bandera_L'], p['Grupo'], p['FP_L']), (v_n, gv, gl, p['Rank_V'], p['Bandera_V'], p['Grupo'], p['FP_V'])]:
+                    if eq not in sim_stats: 
+                        sim_stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP_Airtable': fp_air, 'Partidos': []}
+                    sim_stats[eq]['GF'] += g_f
+                    sim_stats[eq]['DG'] += (g_f - g_c)
+                    if g_f > g_c: sim_stats[eq]['PTS'] += 3
+                    elif g_f == g_c: sim_stats[eq]['PTS'] += 1
+                    # Guardamos el duelo individual para el criterio de desempate 1
+                    sim_stats[eq]['Partidos'].append({'rival': v_n if eq == l_n else l_n, 'gf': g_f, 'gc': g_c, 'pts': 3 if g_f > g_c else (1 if g_f == g_c else 0)})
+
             lista_g = sorted(list(set([s['Grupo'] for s in sim_stats.values() if len(str(s['Grupo'])) == 1])))
             g_sel = st.radio("Grupo:", lista_g, horizontal=True)
 
-            # --- AJUSTE DE FAIR PLAY (RÁPIDO) ---
             st.write("🔧 **Ajustar Fair Play:**")
             eq_grupo = [s for s in sim_stats.values() if s['Grupo'] == g_sel]
             for eq_data in eq_grupo:
@@ -240,15 +245,34 @@ if st.session_state.connected:
                 col_n.write(eq_data['Equipo'])
                 st.session_state.sim_fp[eq_data['Equipo']] = col_i.number_input("FP", None, None, int(st.session_state.sim_fp.get(eq_data['Equipo'], 0)), key=f"fp_sim_{eq_data['Equipo']}", label_visibility="collapsed")
 
-            # --- BOTÓN PARA CALCULAR ---
-            if st.button("🏆 " + ("Calculate Standings" if lang=="English" else "Calcular Posiciones"), type="primary", use_container_width=True):
-                for eq in sim_stats:
-                    sim_stats[eq]['FP_Total'] = sim_stats[eq]['FP_Airtable'] + st.session_state.sim_fp.get(eq, 0)
+            if st.button("🏆 CALCULAR POSICIONES", type="primary", use_container_width=True):
+                # Aplicamos la Lógica de Desempate FIFA
+                def criterio_fifa(e):
+                    empatados = [x for x in eq_grupo if x['PTS'] == e['PTS'] and x['Equipo'] != e['Equipo']]
+                    pts_dir, dg_dir, gf_dir = 0, 0, 0
+                    if empatados:
+                        nombres_emp = [x['Equipo'] for x in empatados]
+                        partidos_dir = [p for p in e['Partidos'] if p['rival'] in nombres_emp]
+                        pts_dir = sum(p['pts'] for p in partidos_dir)
+                        dg_dir = sum(p['gf'] - p['gc'] for p in partidos_dir)
+                        gf_dir = sum(p['gf'] for p in partidos_dir)
+                    
+                    fp_total = e['FP_Airtable'] + st.session_state.sim_fp.get(e['Equipo'], 0)
+                    return (-e['PTS'], -pts_dir, -dg_dir, -gf_dir, -e['DG'], -e['GF'], fp_total, e['Rank'])
+
+                df_s = pd.DataFrame(eq_grupo)
+                df_s['FP_Tot'] = df_s.apply(lambda x: x['FP_Airtable'] + st.session_state.sim_fp.get(x['Equipo'], 0), axis=1)
+                # Ordenar por la función compleja de la FIFA
+                eq_finales = sorted(eq_grupo, key=criterio_fifa)
+                df_final = pd.DataFrame(eq_finales)
+                df_final['FP'] = df_final.apply(lambda x: x['FP_Airtable'] + st.session_state.sim_fp.get(x['Equipo'], 0), axis=1)
                 
-                df_s = pd.DataFrame([s for s in sim_stats.values() if s['Grupo'] == g_sel]).sort_values(
-                    by=['PTS', 'DG', 'GF', 'FP_Total', 'Rank'], ascending=[False, False, False, True, True]
+                st.data_editor(
+                    df_final[['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP']], 
+                    column_config={"Flag": st.column_config.ImageColumn(" ")}, 
+                    hide_index=True, disabled=True, use_container_width=True
                 )
-                st.data_editor(df_s[['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP_Total']], column_config={"Flag": st.column_config.ImageColumn(" "), "FP_Total": "FP"}, hide_index=True, disabled=True, use_container_width=True)
+                st.success("Criterios FIFA aplicados (incluyendo Duelos Directos).")
 
         # --- CRUCES ---
         st.divider()
