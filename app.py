@@ -227,9 +227,9 @@ if st.session_state.connected:
                     l = p['Local_ES'] if lang == "Español" else p['Local_EN']
                     v = p['Visitante_ES'] if lang == "Español" else p['Visitante_EN']
                     gl, gv = int(p['Goles Real L']), int(p['Goles Real V'])
-                    for eq, rnk, fp, bnd in [(l, p['Rank_L'], p['FP_L'], p['Bandera_L']), (v, p['Rank_V'], p['FP_V'], p['Bandera_V'])]:
+                    for eq, rnk, fp in [(l, p['Rank_L'], p['FP_L']), (v, p['Rank_V'], p['FP_V'])]:
                         if eq not in stats_global:
-                            stats_global[eq] = {'Flag': bnd, 'Equipo': eq, 'PJ':0, 'PTS':0, 'DG':0, 'GF':0, 'FP': 0, 'Rank': rnk, 'Grupo': g}
+                            stats_global[eq] = {'Equipo': eq, 'PJ':0, 'PTS':0, 'DG':0, 'GF':0, 'FP': 0, 'Rank': rnk, 'Grupo': g}
                         stats_global[eq]['FP'] += fp
                     stats_global[l]['PJ'] += 1; stats_global[v]['PJ'] += 1
                     stats_global[l]['GF'] += gl; stats_global[v]['GF'] += gv
@@ -238,7 +238,6 @@ if st.session_state.connected:
                     else: stats_global[l]['PTS'] += 1; stats_global[v]['PTS'] += 1
                     stats_global[l]['DG'] += (gl - gv)
                     stats_global[v]['DG'] += (gv - gl)
-            
             grupos_ids = sorted(list(set([s['Grupo'] for s in stats_global.values()])))
             tablas_finales = {}
             for g_id in grupos_ids:
@@ -246,9 +245,8 @@ if st.session_state.connected:
                 eq_grupo = [s for s in stats_global.values() if s['Grupo'] == g_id]
                 eq_grupo.sort(key=lambda x: (x['PTS'], x['DG'], x['GF'], x['FP'], -x['Rank']), reverse=True)
                 tablas_finales[g_id] = eq_grupo
-                df_g = pd.DataFrame(eq_grupo)[['Flag', 'Equipo', 'PJ', 'PTS', 'DG', 'GF', 'FP']]
-                st.data_editor(df_g, column_config={"Flag": st.column_config.ImageColumn(" ", width="small")}, use_container_width=True, hide_index=True, disabled=True, key=f"res_{g_id}")
-
+                df_g = pd.DataFrame(eq_grupo)[['Equipo', 'PJ', 'PTS', 'DG', 'GF', 'FP']]
+                st.dataframe(df_g, use_container_width=True, hide_index=True)
             st.divider()
             st.subheader("🥉 Best Third Places" if lang == "English" else "🥉 Mejores Terceros")
             terceros_lista = [tablas_finales[g][2] for g in grupos_ids if len(tablas_finales[g]) >= 3]
@@ -256,8 +254,7 @@ if st.session_state.connected:
                 df_3 = pd.DataFrame(terceros_lista).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True]).reset_index(drop=True)
                 def highlight_top8(s):
                     return ['background-color: rgba(46, 204, 113, 0.3)' if s.name < 8 else '' for _ in s]
-                st.data_editor(df_3[['Flag', 'Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'FP']].style.apply(highlight_top8, axis=1), column_config={"Flag": st.column_config.ImageColumn(" ", width="small")}, use_container_width=True, hide_index=True, disabled=True)
-            
+                st.dataframe(df_3[['Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'FP']].style.apply(highlight_top8, axis=1), use_container_width=True, hide_index=True)
             st.divider()
             st.subheader("🏆 Knockout Stage" if lang == "English" else "🏆 Fase de Eliminatorias")
             texto_a_definir = "To be defined..." if lang == "English" else "Por definirse..."
@@ -290,7 +287,7 @@ if st.session_state.connected:
             col_partidos, col_tablas = st.columns([1.2, 1], gap="large")
 
             with col_partidos:
-                st.markdown("### ⚽ Simular Partidos")
+                st.markdown("### ⚽ " + ("Simulate Matches" if lang == "English" else "Simular Partidos"))
                 jornadas_sim = sorted(list(set([p['Jornada'] for p in partidos if p['Jornada']])))
                 j_sim = st.selectbox("Jornada:", jornadas_sim, key="j_sim_sel")
                 for p in [p for p in partidos if p['Jornada'] == j_sim]:
@@ -298,20 +295,21 @@ if st.session_state.connected:
                         c1, c2, c3, c4, c5 = st.columns([2, 1, 0.5, 1, 2])
                         with c1: st.caption(p['Local_ES'] if lang == "Español" else p['Local_EN'])
                         gl = c2.number_input("", 0, 20, int(st.session_state.sim_results[p['ID']]['GL']), key=f"s_l_{p['ID']}", label_visibility="collapsed")
+                        c3.write(":")
                         gv = c4.number_input("", 0, 20, int(st.session_state.sim_results[p['ID']]['GV']), key=f"s_v_{p['ID']}", label_visibility="collapsed")
                         with c5: st.caption(p['Visitante_ES'] if lang == "Español" else p['Visitante_EN'])
                         st.session_state.sim_results[p['ID']] = {'GL': gl, 'GV': gv}
 
             with col_tablas:
-                st.markdown("### 📊 Posiciones en Vivo")
+                st.markdown("### 📊 " + ("Live Standing" if lang == "English" else "Posiciones en Vivo"))
                 sim_stats = {}
                 for p in partidos:
                     res = st.session_state.sim_results[p['ID']]
                     g, l, v = p['Grupo'], p['Local_ES'] if lang=="Español" else p['Local_EN'], p['Visitante_ES'] if lang=="Español" else p['Visitante_EN']
                     gl, gv = res['GL'], res['GV']
-                    for eq, rnk, bnd in [(l, p['Rank_L'], p['Bandera_L']), (v, p['Rank_V'], p['Bandera_V'])]:
+                    for eq, rnk in [(l, p['Rank_L']), (v, p['Rank_V'])]:
                         if eq not in sim_stats:
-                            sim_stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PJ':0, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': g, 'FP': st.session_state.sim_fp.get(eq, 0)}
+                            sim_stats[eq] = {'Equipo': eq, 'PJ':0, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': g, 'FP': st.session_state.sim_fp.get(eq, 0)}
                     sim_stats[l]['PJ'] += 1; sim_stats[v]['PJ'] += 1
                     sim_stats[l]['GF'] += gl; sim_stats[v]['GF'] += gv
                     sim_stats[l]['DG'] += (gl - gv); sim_stats[v]['DG'] += (gv - gl)
@@ -319,28 +317,29 @@ if st.session_state.connected:
                     elif gv > gl: sim_stats[v]['PTS'] += 3
                     else: sim_stats[l]['PTS'] += 1; sim_stats[v]['PTS'] += 1
 
-                lista_grupos = sorted(list(set([s['Grupo'] for s in sim_stats.values() if len(str(s['Grupo'])) == 1])))
-                g_ver = st.radio("Ver Grupo:", lista_grupos, horizontal=True) if lista_grupos else "A"
-                
-                st.write("**Fair Play:**")
+                g_ver = st.radio("Ver Grupo:", sorted(list(set([s['Grupo'] for s in sim_stats.values()]))), horizontal=True)
+                st.write("**Fair Play (Points < 0):**")
                 eq_fp = [s for s in sim_stats.values() if s['Grupo'] == g_ver]
                 cols_fp = st.columns(len(eq_fp))
                 for i, eq_data in enumerate(eq_fp):
-                    val_fp = cols_fp[i].number_input(f"{eq_data['Equipo'][:10]}", None, 0, int(st.session_state.sim_fp.get(eq_data['Equipo'], 0)), key=f"fp_sim_{eq_data['Equipo']}")
+                    nombre_c = eq_data['Equipo'][:10]
+                    val_fp = cols_fp[i].number_input(f"{nombre_c}", None, 0, int(st.session_state.sim_fp.get(eq_data['Equipo'], 0)), key=f"fp_sim_{eq_data['Equipo']}")
                     st.session_state.sim_fp[eq_data['Equipo']] = val_fp
                     sim_stats[eq_data['Equipo']]['FP'] = val_fp
 
                 df_sim = pd.DataFrame(eq_fp).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
-                st.data_editor(df_sim[['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP']], column_config={"Flag": st.column_config.ImageColumn(" ", width="small")}, use_container_width=True, hide_index=True, disabled=True, key=f"sim_tab_{g_ver}")
+                st.dataframe(df_sim[['Equipo', 'PTS', 'DG', 'GF', 'FP']], use_container_width=True, hide_index=True)
 
             st.divider()
             st.subheader("🏁 Cruces Simulados")
             st.warning("Próximo paso: Programar la matriz de cruces...")
 
+    # --- 5. SEDES Y EQUIPOS (PROVISIONAL) ---
     else:
         st.info("Sedes y Equipos: Próximamente / Coming soon")
 
 else:
+    # --- PANTALLA DE LOGIN ---
     st.title("⚽ World Cup 2026")
     client_id = st.secrets["google_oauth"]["client_id"]
     redirect_uri = st.secrets["google_oauth"]["redirect_uri"]
