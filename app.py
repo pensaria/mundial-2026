@@ -85,8 +85,7 @@ def obtener_ranking_global(partidos):
             rl, rv, pl, pv = m['Goles Real L'], m['Goles Real V'], p['goles_local'], p['goles_visitante']
             if rl == pl and rv == pv: puntos[user] += 4
             elif (rl > rv and pl > pv) or (rl < rv and pl < pv) or (rl == rv and pl == pv): puntos[user] += 2
-    ranking = sorted([{"Usuario": k, "Puntos": v} for k, v in puntos.items()], key=lambda x: x['Puntos'], reverse=True)
-    return ranking
+    return sorted([{"Usuario": k, "Puntos": v} for k, v in puntos.items()], key=lambda x: x['Puntos'], reverse=True)
 
 def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
     nombre = nombre_es if lang_choice == "Español" else (nombre_en or nombre_es)
@@ -98,7 +97,7 @@ if "connected" not in st.session_state: st.session_state.connected = False
 if "code" in st.query_params: st.session_state.connected = True
 
 if st.session_state.connected:
-    lang = st.sidebar.selectbox("🌐", ["Español", "English"])
+    lang = st.sidebar.selectbox("🌐 Language", ["Español", "English"])
     t = texts[lang]
     partidos_data = obtener_partidos_airtable()
     menu = st.sidebar.radio("Menu", [t["nav_home"], t["nav_play"], t["nav_results"], t["nav_sim"], t["nav_stadiums"]])
@@ -111,15 +110,13 @@ if st.session_state.connected:
     if menu == t["nav_home"]:
         st.subheader(t["ranking_title"])
         ranking = obtener_ranking_global(partidos_data)
-        if ranking:
-            st.table(pd.DataFrame(ranking))
-        else:
-            st.info("Aún no hay puntos registrados.")
+        if ranking: st.table(pd.DataFrame(ranking))
+        else: st.info("Aún no hay puntos.")
 
     # --- 2. JUGAR ---
     elif menu == t["nav_play"]:
         st.subheader(t["nav_play"])
-        email_user = "usuario_prueba@gmail.com" # Cambiar por login real
+        email_user = "usuario_prueba@gmail.com"
         preds = obtener_predicciones_usuario(email_user)
         jornadas = sorted(list(set([p['Jornada'] for p in partidos_data if p['Jornada']])))
         j_sel = st.selectbox("Jornada:", jornadas)
@@ -136,7 +133,7 @@ if st.session_state.connected:
             if st.form_submit_button(t["save_btn"], use_container_width=True):
                 for p in [p for p in partidos_data if p['Jornada'] == j_sel]:
                     guardar_prediccion_supabase(email_user, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
-                st.success("¡Pronósticos guardados!"); st.balloons()
+                st.success("Guardado!"); st.balloons()
 
     # --- 3. RESULTADOS ---
     elif menu == t["nav_results"]:
@@ -154,9 +151,9 @@ if st.session_state.connected:
         tablas_finales = {}
         for g in grupos:
             st.write(f"### GRUPO {g}")
-            df = pd.DataFrame([s for s in stats.values() if s['Grupo'] == g]).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
-            tablas_finales[g] = df
-            st.data_editor(df[['Flag', 'Equipo', 'PJ', 'PTS', 'DG', 'GF']], column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, key=f"res_{g}", use_container_width=True)
+            df_g = pd.DataFrame([s for s in stats.values() if s['Grupo'] == g]).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
+            tablas_finales[g] = df_g
+            st.data_editor(df_g[['Flag', 'Equipo', 'PJ', 'PTS', 'DG', 'GF']], column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, key=f"res_{g}", use_container_width=True)
 
         st.divider()
         st.subheader("🥉 Mejores Terceros")
@@ -168,10 +165,17 @@ if st.session_state.connected:
             def highlight_3(s): return ['background-color: rgba(46, 204, 113, 0.3)' if s.name < 8 else '' for _ in s]
             st.data_editor(df_3[['Flag', 'Equipo', 'Grupo', 'PTS', 'DG', 'GF']].style.apply(highlight_3, axis=1), column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, use_container_width=True)
 
+        # --- SECCIÓN DE CRUCES RESULTADOS ---
+        st.divider()
+        st.subheader("🏆 Knockout Stage / Fase de Eliminatorias")
+        txt_def = "Por definirse..." if lang == "Español" else "To be defined..."
+        c1, c2, c3 = st.columns(3); c1.info(f"**Round of 32 / 16vos**\n\n{txt_def}"); c2.info(f"**Round of 16 / 8vos**\n\n{txt_def}"); c3.info(f"**Quarter-finals / 4tos**\n\n{txt_def}")
+        c4, c5, c6 = st.columns(3); c4.warning(f"**Semi-finals / Semifinales**\n\n{txt_def}"); c5.success(f"**Third Place / 3er Puesto**\n\n{txt_def}"); c6.error(f"**GRAND FINAL / GRAN FINAL**\n\n{txt_def}")
+
     # --- 4. SIMULADOR ---
     elif menu == t["nav_sim"]:
         st.subheader(t["nav_sim"])
-        if "sim_res" not in st.session_state: st.session_res = {p['ID']: {'L': p['Goles Real L'] or 0, 'V': p['Goles Real V'] or 0} for p in partidos_data}
+        if "sim_fp" not in st.session_state: st.session_state.sim_fp = {p['Local_ES']: 0 for p in partidos_data}
         
         col_p, col_t = st.columns([1.2, 1], gap="large")
         with col_p:
@@ -188,11 +192,10 @@ if st.session_state.connected:
             st.write("### Posiciones en Vivo")
             sim_stats = {}
             for p in partidos_data:
-                gl = st.session_state.get(f"sl_{p['ID']}", 0)
-                gv = st.session_state.get(f"sv_{p['ID']}", 0)
+                gl, gv = st.session_state.get(f"sl_{p['ID']}", 0), st.session_state.get(f"sv_{p['ID']}", 0)
                 l_n, v_n = (p['Local_ES'] if lang=="Español" else p['Local_EN']), (p['Visitante_ES'] if lang=="Español" else p['Visitante_EN'])
                 for eq, g_l, g_c, rnk, bnd, grp in [(l_n, gl, gv, p['Rank_L'], p['Bandera_L'], p['Grupo']), (v_n, gv, gl, p['Rank_V'], p['Bandera_V'], p['Grupo'])]:
-                    if eq not in sim_stats: sim_stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP':0}
+                    if eq not in sim_stats: sim_stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP':st.session_state.sim_fp.get(eq, 0)}
                     sim_stats[eq]['GF'] += g_l; sim_stats[eq]['DG'] += (g_l - g_c)
                     if g_l > g_c: sim_stats[eq]['PTS'] += 3
                     elif g_l == g_c: sim_stats[eq]['PTS'] += 1
@@ -201,6 +204,12 @@ if st.session_state.connected:
             g_sel = st.radio("Grupo:", lista_g, horizontal=True)
             df_s = pd.DataFrame([s for s in sim_stats.values() if s['Grupo'] == g_sel]).sort_values(by=['PTS', 'DG', 'GF', 'Rank'], ascending=[False, False, False, True])
             st.data_editor(df_s[['Flag', 'Equipo', 'PTS', 'DG', 'GF']], column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, use_container_width=True, key=f"sim_tab_{g_sel}")
+
+        # --- CRUCES EN EL SIMULADOR ---
+        st.divider()
+        st.subheader("🏁 Simulated Knockout Stage / Cruces Simulados")
+        txt_sim_def = "Simula resultados para ver cruces..." if lang == "Español" else "Simulate results to see brackets..."
+        sc1, sc2, sc3 = st.columns(3); sc1.info(f"**Round of 32 / 16vos**\n\n{txt_sim_def}"); sc2.info(f"**Round of 16 / 8vos**\n\n{txt_sim_def}"); sc3.info(f"**Quarter-finals / 4tos**\n\n{txt_sim_def}")
 
     else: st.info("Próximamente")
 
