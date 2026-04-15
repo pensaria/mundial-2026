@@ -108,10 +108,43 @@ if st.session_state.connected:
 
     # --- 1. INICIO ---
     if menu == t["nav_home"]:
-        st.subheader(t["ranking_title"])
-        ranking = obtener_ranking_global(partidos_data)
-        if ranking: st.table(pd.DataFrame(ranking))
-        else: st.info("Aún no hay puntos.")
+        col_rank, col_next = st.columns([1.5, 1], gap="large")
+        
+        with col_rank:
+            st.subheader(t["ranking_title"])
+            ranking = obtener_ranking_global(partidos_data)
+            if ranking: 
+                st.table(pd.DataFrame(ranking))
+            else: 
+                st.info("Aún no hay puntos.")
+
+        with col_next:
+            st.subheader(t["next_matches"])
+            # Ajustamos a la zona horaria que definimos
+            zona_sofia = ZoneInfo("Europe/Sofia")
+            ahora = datetime.now(zona_sofia)
+            proximos = []
+            
+            for p in partidos_data:
+                if p['Fecha_Hora']:
+                    # Convertimos el texto de Airtable a objeto datetime real
+                    f_dt = datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia)
+                    if f_dt > ahora:
+                        proximos.append((f_dt, p))
+            
+            # Ordenamos por fecha (el más cercano primero)
+            proximos.sort(key=lambda x: x[0])
+            
+            if proximos:
+                for f, p in proximos[:5]: # Mostramos solo los 5 siguientes
+                    with st.container(border=True):
+                        st.caption(f.strftime('%d/%m - %H:%M hs'))
+                        # Usamos render_equipo para que las banderas salgan uniformes
+                        st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
+                        st.markdown("<div style='text-align:center; font-size:10px; color:gray; margin:2px 0;'>VS</div>", unsafe_allow_html=True)
+                        st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang), unsafe_allow_html=True)
+            else:
+                st.success(t["no_matches"])
 
     # --- 2. JUGAR ---
     elif menu == t["nav_play"]:
