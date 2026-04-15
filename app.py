@@ -121,15 +121,30 @@ if st.session_state.connected:
         jornadas = sorted(list(set([p['Jornada'] for p in partidos_data if p['Jornada']])))
         j_sel = st.selectbox("Jornada:", jornadas)
         with st.form("f_prode"):
-            for p in [p for p in partidos_data if p['Jornada'] == j_sel]:
+            # Ordenamos los partidos por Grupo antes de mostrarlos
+            partidos_jornada = [p for p in partidos_data if p['Jornada'] == j_sel]
+            partidos_ordenados = sorted(partidos_jornada, key=lambda x: x['Grupo'])
+
+            for p in partidos_ordenados:
                 with st.container(border=True):
+                    # Agregamos una etiqueta de grupo arriba de cada partido para mayor claridad
+                    st.caption(f"Grupo {p['Grupo']}")
                     c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                    with c1: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
+                    
+                    # Local con bandera
+                    with c1: 
+                        st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
+                    
                     v_l = preds.get(str(p['ID']), {}).get('goles_local', 0)
                     v_v = preds.get(str(p['ID']), {}).get('goles_visitante', 0)
+                    
                     gl = c2.number_input("L", 0, 20, v_l, key=f"l_{p['ID']}", label_visibility="collapsed")
+                    c3.markdown("<div style='text-align:center; padding-top:10px;'>:</div>", unsafe_allow_html=True)
                     gv = c4.number_input("V", 0, 20, v_v, key=f"v_{p['ID']}", label_visibility="collapsed")
-                    with c5: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
+                    
+                    # Visitante con bandera
+                    with c5: 
+                        st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
             if st.form_submit_button(t["save_btn"], use_container_width=True):
                 for p in [p for p in partidos_data if p['Jornada'] == j_sel]:
                     guardar_prediccion_supabase(email_user, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
