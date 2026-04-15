@@ -206,40 +206,45 @@ if st.session_state.connected:
             
             lista_g = sorted(list(set([s['Grupo'] for s in sim_stats.values() if len(str(s['Grupo'])) == 1])))
             g_sel = st.radio("Grupo:", lista_g, horizontal=True)
+            st.write("🔧 **" + ("Adjust Fair Play" if lang == "English" else "Ajustar Fair Play") + "**")
 
-            # --- BOTONES DE FAIR PLAY ---
-            st.write("🔧 **Ajustar Fair Play (Simular tarjetas):**")
-            eq_en_grupo = [s for s in sim_stats.values() if s['Grupo'] == g_sel]
-            cols_fp = st.columns(len(eq_en_grupo))
-            
-            for i, eq_data in enumerate(eq_en_grupo):
-                nombre_eq = eq_data['Equipo']
-                with cols_fp[i]:
-                    st.caption(nombre_eq[:10])
-                    c_down, c_up = st.columns(2)
-                    if c_down.button("➖", key=f"btn_down_{nombre_eq}"):
-                        st.session_state.sim_fp[nombre_eq] -= 1
-                        st.rerun()
-                    if c_up.button("➕", key=f"btn_up_{nombre_eq}"):
-                        st.session_state.sim_fp[nombre_eq] += 1
-                        st.rerun()
-
-            # Ordenamos por: Puntos, Diferencia de Gol, Goles a Favor, Fair Play (asc) y Ranking (asc)
-            df_s = pd.DataFrame([s for s in sim_stats.values() if s['Grupo'] == g_sel]).sort_values(
+            # Obtenemos y ordenamos los equipos del grupo para la tabla
+            eq_grupo = [s for s in sim_stats.values() if s['Grupo'] == g_sel]
+            df_s = pd.DataFrame(eq_grupo).sort_values(
                 by=['PTS', 'DG', 'GF', 'FP', 'Rank'], 
                 ascending=[False, False, False, True, True]
             )
-            
-            st.data_editor(
-                df_s[['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP']], 
-                column_config={
-                    "Flag": st.column_config.ImageColumn(" "),
-                    "FP": st.column_config.NumberColumn("FP", help="Fair Play: Menor puntaje es mejor (tarjetas)")
-                }, 
-                hide_index=True, 
-                disabled=True, 
+
+            # --- PARTE EDITABLE (BOTONES ESTILO PRODE) ---
+            for eq_name in df_s['Equipo'].tolist():
+                # Buscamos los datos del equipo específico
+                datos_eq = next(item for item in eq_grupo if item['Equipo'] == eq_name)
+                
+                with st.container(border=True):
+                    col_b, col_n, col_val = st.columns([1, 4, 2])
+                    with col_b: st.image(datos_eq['Flag'], width=25)
+                    with col_n: st.write(f"**{eq_name}**")
+                    with col_val:
+                        # Aquí está el secreto: el number_input con botones +/-
+                        nuevo_fp = st.number_input(
+                            "FP", 
+                            None, 0, # Sin mínimo ni máximo estricto
+                            int(st.session_state.sim_fp.get(eq_name, 0)), 
+                            key=f"fp_input_{eq_name}",
+                            label_visibility="collapsed"
+                        )
+                        # Si el valor cambia, actualizamos y refrescamos
+                        if nuevo_fp != st.session_state.sim_fp.get(eq_name, 0):
+                            st.session_state.sim_fp[eq_name] = nuevo_fp
+                            st.rerun()
+
+            st.write("---")
+            # Mostramos una tabla resumen pequeña (no editable) solo para ver el orden final
+            st.write("📊 **" + ("Final Standings" if lang == "English" else "Posiciones Finales") + "**")
+            st.dataframe(
+                df_s[['Equipo', 'PTS', 'DG', 'GF', 'FP']], 
                 use_container_width=True, 
-                key=f"sim_tab_{g_sel}"
+                hide_index=True
             )
 
         # --- CRUCES EN EL SIMULADOR ---
