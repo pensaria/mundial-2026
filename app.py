@@ -293,23 +293,24 @@ if st.session_state.connected:
                         st.markdown(f"<div style='display:flex; align-items:center; gap:10px;'><img src='{band_url}' width='25'><b>{eq_name}</b></div>", unsafe_allow_html=True)
                     
                     # --- SOLUCIÓN AL ERROR DE LÍMITES ---
-                    # 1. Obtenemos el valor actual o 0 si no existe
+                    # 1. Obtenemos el valor de la memoria
                     val_memoria = st.session_state.sim_fp.get(eq_name, 0)
                     
-                    # 2. Forzamos que el valor esté entre -100 y 100 antes de pasarlo al widget
-                    val_safe = max(-100, min(100, int(val_memoria)))
+                    # 2. FILTRO DE SEGURIDAD: Si el valor es mayor a 0, lo bajamos a 0 
+                    # para que no rompa el widget al definir max_value=0
+                    val_safe = min(0, int(val_memoria))
 
-                    # 3. Widget con rango flexible y clave única por idioma
+                    # 3. Widget con límite máximo ESTRICTO en 0
                     val_fp = cf2.number_input(
                         "FP", 
                         min_value=-100, 
-                        max_value=100, 
+                        max_value=0, # Aquí bloqueamos que no puedan subir de 0
                         value=val_safe, 
                         key=f"fp_input_{eq_name}_{g_sel}_{lang}", 
                         label_visibility="collapsed"
                     )
                     
-                    # Guardamos el resultado de vuelta
+                    # Guardamos el resultado
                     st.session_state.sim_fp[eq_name] = val_fp
                     
             # --- BOTÓN DE CALCULAR POSICIONES ---
