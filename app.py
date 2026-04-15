@@ -200,81 +200,94 @@ if st.session_state.connected:
 
         st.divider()
 
-        # --- 2. DISEÑO DE DOS COLUMNAS ---
-        # --- 1. PREPARACIÓN DE DATOS ---
-        sim_stats = {}
-        for p in partidos_data:
-            gl = st.session_state.get(f"sl_{p['ID']}", 0)
-            gv = st.session_state.get(f"sv_{p['ID']}", 0)
-            l_n, v_n = (p['Local_ES'] if lang=="Español" else p['Local_EN']), (p['Visitante_ES'] if lang=="Español" else p['Visitante_EN'])
-            
-            for eq, g_f, g_c, rnk, bnd, grp, fp_air in [(l_n, gl, gv, p['Rank_L'], p['Bandera_L'], p['Grupo'], p['FP_L']), (v_n, gv, gl, p['Rank_V'], p['Bandera_V'], p['Grupo'], p['FP_V'])]:
-                if eq not in sim_stats: 
-                    sim_stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP_Base': fp_air, 'Partidos': []}
-                sim_stats[eq]['GF'] += g_f
-                sim_stats[eq]['DG'] += (g_f - g_c)
-                if g_f > g_c: sim_stats[eq]['PTS'] += 3
-                elif g_f == g_c: sim_stats[eq]['PTS'] += 1
-                sim_stats[eq]['Partidos'].append({'rival': v_n if eq == l_n else l_n, 'gf': g_f, 'gc': g_c, 'pts': 3 if g_f > g_c else (1 if g_f == g_c else 0)})
-
         # --- 2. DISEÑO POR GRUPO ---
-        lista_g = sorted(list(set([s['Grupo'] for s in sim_stats.values() if len(str(s['Grupo'])) == 1])))
-        g_sel = st.radio("Selecciona Grupo para Simular:", lista_g, horizontal=True)
+        # Calculamos los grupos disponibles
+        grupos_disponibles = sorted(list(set([p['Grupo'] for p in partidos_data if len(p['Grupo']) == 1])))
+        g_sel = st.radio("Selecciona Grupo para Simular:", grupos_disponibles, horizontal=True)
 
         col_izq, col_der = st.columns([1.1, 1], gap="medium")
 
         with col_izq:
             st.markdown(f"### ⚽ Partidos Grupo {g_sel}")
-            # Filtrar partidos solo de este grupo
             partidos_grupo = [p for p in partidos_data if p['Grupo'] == g_sel]
             for p in partidos_grupo:
                 with st.container(border=True):
                     c1, c2, c3, c4, c5 = st.columns([2, 1, 0.5, 1, 2])
-                    c1.write(p['Local_ES'])
-                    # Usamos on_change para que la tabla reaccione si hay cambios
+                    # Banderas uniformes en los partidos
+                    with c1: 
+                        st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
                     st.session_state[f"sl_{p['ID']}"] = c2.number_input("L", 0, 20, int(st.session_state.get(f"sl_{p['ID']}", 0)), key=f"sim_l_{p['ID']}", label_visibility="collapsed")
-                    c3.write(":")
+                    c3.markdown("<div style='text-align:center; padding-top:10px;'>:</div>", unsafe_allow_html=True)
                     st.session_state[f"sv_{p['ID']}"] = c4.number_input("V", 0, 20, int(st.session_state.get(f"sv_{p['ID']}", 0)), key=f"sim_v_{p['ID']}", label_visibility="collapsed")
-                    c5.write(p['Visitante_ES'])
+                    with c5: 
+                        st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
 
         with col_der:
             st.markdown(f"### 📊 Posiciones Grupo {g_sel}")
             
-            # Función de desempate FIFA
-            eq_grupo = [s for s in sim_stats.values() if s['Grupo'] == g_sel]
+            # --- AJUSTE DE FAIR PLAY (CON BOTONES Y LÍMITE 0) ---
+            st.write("🔧 **" + ("Fair Play (Adjust manual penalty)" if lang=="English" else "Fair Play (Ajuste de penalidad)") + "**")
+            eq_grupo_nombres = sorted(list(set([p['Local_ES'] for p in partidos_grupo] + [p['Visitante_ES'] for p in partidos_grupo])))
             
-            def calcular_orden(e):
-                empatados = [x for x in eq_grupo if x['PTS'] == e['PTS'] and x['Equipo'] != e['Equipo']]
-                pts_dir, dg_dir, gf_dir = 0, 0, 0
-                if empatados:
-                    nombres_emp = [x['Equipo'] for x in empatados]; p_dir = [p for p in e['Partidos'] if p['rival'] in nombres_emp]
-                    pts_dir, dg_dir, gf_dir = sum(p['pts'] for p in p_dir), sum(p['gf'] - p['gc'] for p in p_dir), sum(p['gf'] for p in p_dir)
-                fp_tot = e['FP_Base'] + st.session_state.sim_fp.get(e['Equipo'], 0)
-                return (-e['PTS'], -pts_dir, -dg_dir, -gf_dir, -e['DG'], -e['GF'], fp_tot, e['Rank'])
+            c_fp = st.columns(len(eq_grupo_nombres))
+            for i, eq_name in enumerate(eq_grupo_nombres):
+                with c_fp[i]:
+                    st.caption(eq_name[:10])
+                    # El valor es negativo o 0. Máximo 0.
+                    val_actual = st.session_state.sim_fp.get(eq_name, 0)
+                    c_up, c_down = st.columns(2)
+                    if c_up.button("➕", key=f"fp_up_{eq_name}"):
+                        if val_actual < 0: st.session_state.sim_fp[eq_name] += 1; st.rerun()
+                    if c_down.button("➖", key=f"fp_down_{eq_name}"):
+                        st.session_state.sim_fp[eq_name] -= 1; st.rerun()
+                    st.markdown(f"<div style='text-align:center; font-weight:bold; color:#ff4b4b;'>{val_actual}</div>", unsafe_allow_html=True)
 
-            # Generar DataFrame ordenado
-            eq_ordenados = sorted(eq_grupo, key=calcular_orden)
-            df_mostrar = pd.DataFrame(eq_ordenados)
-            df_mostrar['FP'] = df_mostrar.apply(lambda x: x['FP_Base'] + st.session_state.sim_fp.get(x['Equipo'], 0), axis=1)
+            # --- BOTÓN DE CALCULAR ---
+            if st.button("🏆 " + ("Calculate Standings" if lang=="English" else "Calcular Posiciones"), type="primary", use_container_width=True):
+                st.session_state[f"calc_trigger_{g_sel}"] = True
 
-            # TABLA EDITABLE: El usuario cambia el FP directamente aquí
-            df_edit = st.data_editor(
-                df_mostrar[['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP']],
-                column_config={
-                    "Flag": st.column_config.ImageColumn(" ", width="small"),
-                    "FP": st.column_config.NumberColumn("FP", help="Edita las tarjetas aquí", format="%d")
-                },
-                hide_index=True, use_container_width=True,
-                disabled=['Flag', 'Equipo', 'PTS', 'DG', 'GF'], # Solo el FP es editable
-                key=f"editor_fp_{g_sel}"
-            )
+            if st.session_state.get(f"calc_trigger_{g_sel}", False):
+                # Preparación de estadísticas para el cálculo
+                sim_stats = {}
+                for p in partidos_data: # Calculamos sobre todos para tener datos de otros grupos si fuera necesario
+                    gl, gv = st.session_state.get(f"sl_{p['ID']}", 0), st.session_state.get(f"sv_{p['ID']}", 0)
+                    for eq, gf, gc, rnk, bnd, grp, fp_air in [
+                        (p['Local_ES'], gl, gv, p['Rank_L'], p['Bandera_L'], p['Grupo'], p['FP_L']),
+                        (p['Visitante_ES'], gv, gl, p['Rank_V'], p['Bandera_V'], p['Grupo'], p['FP_V'])
+                    ]:
+                        if eq not in sim_stats:
+                            sim_stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP_Base': fp_air, 'Partidos': []}
+                        sim_stats[eq]['GF'] += gf
+                        sim_stats[eq]['DG'] += (gf - gc)
+                        if gf > gc: sim_stats[eq]['PTS'] += 3
+                        elif gf == gc: sim_stats[eq]['PTS'] += 1
+                        sim_stats[eq]['Partidos'].append({'rival': p['Visitante_EN'] if eq == p['Local_ES'] else p['Local_ES'], 'gf': gf, 'gc': gc, 'pts': 3 if gf > gc else (1 if gf == gc else 0)})
 
-            # Sincronizar edición de tabla con el estado de la app
-            for _, row in df_edit.iterrows():
-                # Restamos la base para guardar solo el 'ajuste' manual
-                st.session_state.sim_fp[row['Equipo']] = row['FP'] - next(e['FP_Base'] for e in eq_grupo if e['Equipo'] == row['Equipo'])
+                eq_grupo_stats = [s for s in sim_stats.values() if s['Grupo'] == g_sel]
 
-            st.caption("Criterios FIFA: Puntos > Duelos Directos > DG > GF > Fair Play > Ranking.")
+                def calcular_orden(e):
+                    empatados = [x for x in eq_grupo_stats if x['PTS'] == e['PTS'] and x['Equipo'] != e['Equipo']]
+                    pts_dir, dg_dir, gf_dir = 0, 0, 0
+                    if empatados:
+                        nombres_emp = [x['Equipo'] for x in empatados]
+                        p_dir = [p for p in e['Partidos'] if p['rival'] in nombres_emp]
+                        pts_dir, dg_dir, gf_dir = sum(p['pts'] for p in p_dir), sum(p['gf'] - p['gc'] for p in p_dir), sum(p['gf'] for p in p_dir)
+                    fp_total = e['FP_Base'] + st.session_state.sim_fp.get(e['Equipo'], 0)
+                    return (-e['PTS'], -pts_dir, -dg_dir, -gf_dir, -e['DG'], -e['GF'], -fp_total, e['Rank'])
+
+                eq_ordenados = sorted(eq_grupo_stats, key=calcular_orden)
+                df_final = pd.DataFrame(eq_ordenados)
+                df_final['FP'] = df_final.apply(lambda x: x['FP_Base'] + st.session_state.sim_fp.get(x['Equipo'], 0), axis=1)
+
+                st.data_editor(
+                    df_final[['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP']],
+                    column_config={
+                        "Flag": st.column_config.ImageColumn(" ", width="small"),
+                        "FP": st.column_config.NumberColumn("FP", format="%d")
+                    },
+                    hide_index=True, use_container_width=True, disabled=True, key=f"df_res_{g_sel}"
+                )
+                st.caption("Criterios FIFA aplicados (Duelos directos incluidos).")
         # --- CRUCES ---
         st.divider()
         st.subheader("🏁 " + ("Simulated Knockout Stage" if lang == "English" else "Cruces Simulados"))
