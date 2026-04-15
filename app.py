@@ -196,7 +196,9 @@ if st.session_state.connected:
                 l_n, v_n = (p['Local_ES'] if lang=="Español" else p['Local_EN']), (p['Visitante_ES'] if lang=="Español" else p['Visitante_EN'])
                 for eq, g_l, g_c, rnk, bnd, grp, fp_base in [(l_n, gl, gv, p['Rank_L'], p['Bandera_L'], p['Grupo'], p['FP_L']), (v_n, gv, gl, p['Rank_V'], p['Bandera_V'], p['Grupo'], p['FP_V'])]:
                     if eq not in sim_stats: 
-                        sim_stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP': fp_base}
+                        # Sumamos el FP que viene de Airtable + el que el usuario simule manualmente
+                        fp_usuario = st.session_state.sim_fp.get(eq, 0)
+                        sim_stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP': fp_base + fp_usuario}
                     sim_stats[eq]['GF'] += g_l
                     sim_stats[eq]['DG'] += (g_l - g_c)
                     if g_l > g_c: sim_stats[eq]['PTS'] += 3
