@@ -285,12 +285,33 @@ if st.session_state.connected:
                 with st.container(border=True):
                     cf1, cf2 = st.columns([3, 1])
                     with cf1:
-                        st.markdown(f"<div style='display:flex; align-items:center; gap:10px;'><img src='{bandera}' width='25'><b>{eq_name}</b></div>", unsafe_allow_html=True)
+                        # Buscamos la bandera correspondiente
+                        band_url = next((p['Bandera_L'] for p in partidos_data if p['Local_ES'] == eq_name), "")
+                        if not band_url:
+                            band_url = next((p['Bandera_V'] for p in partidos_data if p['Visitante_ES'] == eq_name), "")
+                        
+                        st.markdown(f"<div style='display:flex; align-items:center; gap:10px;'><img src='{band_url}' width='25'><b>{eq_name}</b></div>", unsafe_allow_html=True)
                     
-                    # Usamos number_input para tener los botones + y - integrados, igual que el prode
-                    val_fp = cf2.number_input("FP", -50, 0, int(st.session_state.sim_fp.get(eq_name, 0)), key=f"fp_input_{eq_name}_{g_sel}", label_visibility="collapsed")
-                    st.session_state.sim_fp[eq_name] = val_fp
+                    # --- SOLUCIÓN AL ERROR DE LÍMITES ---
+                    # 1. Obtenemos el valor actual o 0 si no existe
+                    val_memoria = st.session_state.sim_fp.get(eq_name, 0)
+                    
+                    # 2. Forzamos que el valor esté entre -100 y 100 antes de pasarlo al widget
+                    val_safe = max(-100, min(100, int(val_memoria)))
 
+                    # 3. Widget con rango flexible y clave única por idioma
+                    val_fp = cf2.number_input(
+                        "FP", 
+                        min_value=-100, 
+                        max_value=100, 
+                        value=val_safe, 
+                        key=f"fp_input_{eq_name}_{g_sel}_{lang}", 
+                        label_visibility="collapsed"
+                    )
+                    
+                    # Guardamos el resultado de vuelta
+                    st.session_state.sim_fp[eq_name] = val_fp
+                    
             # --- BOTÓN DE CALCULAR POSICIONES ---
             st.write("")
             if st.button("🏆 CALCULAR POSICIONES", type="primary", use_container_width=True):
