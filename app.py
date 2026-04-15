@@ -275,7 +275,7 @@ if st.session_state.connected:
             c4, c5, c6 = st.columns(3); c4.warning(f"**Semi-finals / Semifinales** \n\n {texto_a_definir}"); c5.success(f"**Third Place / 3er Puesto** \n\n {texto_a_definir}"); c6.error(f"**GRAND FINAL / GRAN FINAL** \n\n {texto_a_definir}")
 
     # --- 4. SIMULADOR ---
-   elif menu == t["nav_sim"]:
+elif menu == t["nav_sim"]:
         st.subheader(t["nav_sim"])
         partidos = obtener_partidos_airtable()
         
@@ -363,9 +363,6 @@ if st.session_state.connected:
         # Aquí es donde el motor de mejores terceros entra en acción
         # Por ahora, mostramos el aviso para la siguiente fase del desarrollo
         st.warning("Próximo paso: Programar la matriz de cruces A1 vs C3/D3/E3...")
-
-    else:
-        st.info("Coming soon / Próximamente")
 
 else:
     st.title("⚽ World Cup 2026")
