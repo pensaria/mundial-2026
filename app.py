@@ -300,7 +300,24 @@ if st.session_state.connected:
                         with c5: st.caption(p['Visitante_ES'] if lang == "Español" else p['Visitante_EN'])
                         st.session_state.sim_results[p['ID']] = {'GL': gl, 'GV': gv}
 
-          with col_tablas:
+# --- DISEÑO DE DOS COLUMNAS ---
+            col_partidos, col_tablas = st.columns([1.2, 1], gap="large")
+
+            with col_partidos:
+                st.markdown("### ⚽ " + ("Simulate Matches" if lang == "English" else "Simular Partidos"))
+                jornadas_sim = sorted(list(set([p['Jornada'] for p in partidos if p['Jornada']])))
+                j_sim = st.selectbox("Jornada:", jornadas_sim, key="j_sim_sel")
+                for p in [p for p in partidos if p['Jornada'] == j_sim]:
+                    with st.container(border=True):
+                        c1, c2, c3, c4, c5 = st.columns([2, 1, 0.5, 1, 2])
+                        with c1: st.caption(p['Local_ES'] if lang == "Español" else p['Local_EN'])
+                        gl = c2.number_input("", 0, 20, int(st.session_state.sim_results[p['ID']]['GL']), key=f"s_l_{p['ID']}", label_visibility="collapsed")
+                        c3.write(":")
+                        gv = c4.number_input("", 0, 20, int(st.session_state.sim_results[p['ID']]['GV']), key=f"s_v_{p['ID']}", label_visibility="collapsed")
+                        with c5: st.caption(p['Visitante_ES'] if lang == "Español" else p['Visitante_EN'])
+                        st.session_state.sim_results[p['ID']] = {'GL': gl, 'GV': gv}
+
+            with col_tablas:
                 st.markdown("### 📊 " + ("Live Standing" if lang == "English" else "Posiciones en Vivo"))
                 sim_stats = {}
                 for p in partidos:
@@ -308,11 +325,10 @@ if st.session_state.connected:
                     g, l, v = p['Grupo'], p['Local_ES'] if lang=="Español" else p['Local_EN'], p['Visitante_ES'] if lang=="Español" else p['Visitante_EN']
                     gl, gv = res['GL'], res['GV']
                     
-                    # Guardamos también la URL de la bandera en las estadísticas
                     for eq, rnk, bnd in [(l, p['Rank_L'], p['Bandera_L']), (v, p['Rank_V'], p['Bandera_V'])]:
                         if eq not in sim_stats:
                             sim_stats[eq] = {
-                                'Flag': bnd, # Nueva columna de bandera
+                                'Flag': bnd,
                                 'Equipo': eq, 'PJ':0, 'PTS':0, 'DG':0, 'GF':0, 
                                 'Rank': rnk, 'Grupo': g, 'FP': st.session_state.sim_fp.get(eq, 0)
                             }
@@ -323,6 +339,34 @@ if st.session_state.connected:
                     if gl > gv: sim_stats[l]['PTS'] += 3
                     elif gv > gl: sim_stats[v]['PTS'] += 3
                     else: sim_stats[l]['PTS'] += 1; sim_stats[v]['PTS'] += 1
+
+                lista_grupos_limpia = sorted(list(set([s['Grupo'] for s in sim_stats.values() if s['Grupo'] and len(str(s['Grupo'])) == 1])))
+                if lista_grupos_limpia:
+                    g_ver = st.radio("Ver Grupo:" if lang == "Español" else "View Group:", lista_grupos_limpia, horizontal=True)
+                else: g_ver = "A"
+                
+                st.write("**Fair Play (Points < 0):**")
+                eq_fp = [s for s in sim_stats.values() if s['Grupo'] == g_ver]
+                cols_fp = st.columns(len(eq_fp))
+                for i, eq_data in enumerate(eq_fp):
+                    nombre_c = eq_data['Equipo'][:10]
+                    val_fp = cols_fp[i].number_input(f"{nombre_c}", None, 0, int(st.session_state.sim_fp.get(eq_data['Equipo'], 0)), key=f"fp_sim_{eq_data['Equipo']}")
+                    st.session_state.sim_fp[eq_data['Equipo']] = val_fp
+                    sim_stats[eq_data['Equipo']]['FP'] = val_fp
+
+                df_sim = pd.DataFrame(eq_fp).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
+                
+                st.data_editor(
+                    df_sim[['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP']],
+                    column_config={
+                        "Flag": st.column_config.ImageColumn(" ", width="small"),
+                        "Equipo": st.column_config.TextColumn("Equipo", width="medium"),
+                    },
+                    use_container_width=True,
+                    hide_index=True,
+                    disabled=True,
+                    key=f"editor_{g_ver}" # Clave única para evitar conflictos al cambiar de grupo
+                )
 
                 # --- FILTRO DE GRUPOS ---
                 lista_grupos_limpia = sorted(list(set([s['Grupo'] for s in sim_stats.values() if s['Grupo'] and len(str(s['Grupo'])) == 1])))
