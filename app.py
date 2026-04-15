@@ -206,6 +206,24 @@ if st.session_state.connected:
             
             lista_g = sorted(list(set([s['Grupo'] for s in sim_stats.values() if len(str(s['Grupo'])) == 1])))
             g_sel = st.radio("Grupo:", lista_g, horizontal=True)
+
+            # --- BOTONES DE FAIR PLAY ---
+            st.write("🔧 **Ajustar Fair Play (Simular tarjetas):**")
+            eq_en_grupo = [s for s in sim_stats.values() if s['Grupo'] == g_sel]
+            cols_fp = st.columns(len(eq_en_grupo))
+            
+            for i, eq_data in enumerate(eq_en_grupo):
+                nombre_eq = eq_data['Equipo']
+                with cols_fp[i]:
+                    st.caption(nombre_eq[:10])
+                    c_down, c_up = st.columns(2)
+                    if c_down.button("➖", key=f"btn_down_{nombre_eq}"):
+                        st.session_state.sim_fp[nombre_eq] -= 1
+                        st.rerun()
+                    if c_up.button("➕", key=f"btn_up_{nombre_eq}"):
+                        st.session_state.sim_fp[nombre_eq] += 1
+                        st.rerun()
+
             # Ordenamos por: Puntos, Diferencia de Gol, Goles a Favor, Fair Play (asc) y Ranking (asc)
             df_s = pd.DataFrame([s for s in sim_stats.values() if s['Grupo'] == g_sel]).sort_values(
                 by=['PTS', 'DG', 'GF', 'FP', 'Rank'], 
