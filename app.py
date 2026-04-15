@@ -207,9 +207,20 @@ if st.session_state.connected:
 
         # --- CRUCES EN EL SIMULADOR ---
         st.divider()
-        st.subheader("🏁 Simulated Knockout Stage / Cruces Simulados")
+        st.subheader("🏁 " + ("Simulated Knockout Stage" if lang == "English" else "Cruces Simulados"))
         txt_sim_def = "Simula resultados para ver cruces..." if lang == "Español" else "Simulate results to see brackets..."
-        sc1, sc2, sc3 = st.columns(3); sc1.info(f"**Round of 32 / 16vos**\n\n{txt_sim_def}"); sc2.info(f"**Round of 16 / 8vos**\n\n{txt_sim_def}"); sc3.info(f"**Quarter-finals / 4tos**\n\n{txt_sim_def}")
+        
+        # Fila 1: 16vos, 8vos y 4tos
+        sc1, sc2, sc3 = st.columns(3)
+        sc1.info(f"**Round of 32 / 16vos**\n\n{txt_sim_def}")
+        sc2.info(f"**Round of 16 / 8vos**\n\n{txt_sim_def}")
+        sc3.info(f"**Quarter-finals / 4tos**\n\n{txt_sim_def}")
+
+        # Fila 2: Semis, 3er Puesto y Final
+        sc4, sc5, sc6 = st.columns(3)
+        sc4.warning(f"**Semi-finals / Semifinales**\n\n{txt_sim_def}")
+        sc5.success(f"**Third Place / 3er Puesto**\n\n{txt_sim_def}")
+        sc6.error(f"**GRAND FINAL / GRAN FINAL**\n\n{txt_sim_def}")
 
     else: st.info("Próximamente")
 
