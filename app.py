@@ -317,7 +317,17 @@ if st.session_state.connected:
                     elif gv > gl: sim_stats[v]['PTS'] += 3
                     else: sim_stats[l]['PTS'] += 1; sim_stats[v]['PTS'] += 1
 
-                g_ver = st.radio("Ver Grupo:", sorted(list(set([s['Grupo'] for s in sim_stats.values()]))), horizontal=True)
+# --- FILTRO DE GRUPOS (PARA QUITAR "DEFINIR") ---
+                lista_grupos_limpia = sorted(list(set([
+                    s['Grupo'] for s in sim_stats.values() 
+                    if s['Grupo'] and len(str(s['Grupo'])) == 1
+                ])))
+
+                if lista_grupos_limpia:
+                    g_ver = st.radio("Ver Grupo:" if lang == "Español" else "View Group:", lista_grupos_limpia, horizontal=True)
+                else:
+                    g_ver = "A" # Valor por defecto si falla algo
+                
                 st.write("**Fair Play (Points < 0):**")
                 eq_fp = [s for s in sim_stats.values() if s['Grupo'] == g_ver]
                 cols_fp = st.columns(len(eq_fp))
