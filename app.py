@@ -292,8 +292,29 @@ if st.session_state.connected:
                 st.dataframe(df_3[['Flag', 'Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'FP']].style.apply(style_3, axis=1), 
                              column_config={"Flag": st.column_config.ImageColumn("")}, hide_index=True, use_container_width=True)
 
+        # --- SECCIÓN: VER CUADRO COMPLETO (LOS 12 GRUPOS) ---
+        st.divider()
+        with st.expander("🌍 Ver Cuadro Completo (Todos los Grupos)", expanded=False):
+            st.markdown("### 📋 Tablas de Posiciones Actuales")
+            # Creamos una cuadrícula de 4 columnas para que entren 3 grupos por fila (4x3 = 12)
+            filas_grupos = [grupos_lista[i:i + 4] for i in range(0, len(grupos_lista), 4)]
+            
+            for fila in filas_grupos:
+                cols = st.columns(4)
+                for i, g_id in enumerate(fila):
+                    with cols[i]:
+                        st.markdown(f"**Grupo {g_id}**")
+                        df_mini = df_global[df_global['Grupo'] == g_id][['Flag', 'Equipo', 'PTS', 'DG']]
+                        st.dataframe(
+                            df_mini, 
+                            column_config={"Flag": st.column_config.ImageColumn("")}, 
+                            hide_index=True, 
+                            use_container_width=True
+                        )
+
         st.divider()
         st.subheader("🏁 Cuadro de Eliminatorias Simuladas")
+        # Aquí es donde el usuario enviará la matriz para programar los 16vos
         
     else: st.info("Próximamente")
 
