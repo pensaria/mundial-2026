@@ -198,24 +198,45 @@ if st.session_state.connected:
             st.write(f"### GRUPO {g}")
             st.dataframe(df_res[df_res['Grupo'] == g][['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP']], column_config={"Flag": st.column_config.ImageColumn("")}, hide_index=True, use_container_width=True)
 
-    # --- 4. SIMULADOR (CORREGIDO: SIN SALTOS) ---
+    # --- 4. SIMULADOR (CON REINICIO DE FP Y RENDERIZADO CONDICIONAL) ---
     elif menu == t["nav_sim"]:
         st.subheader(t["nav_sim"])
+        
+        # Inicialización de estados
         if "sim_goles" not in st.session_state: st.session_state.sim_goles = {}
         if "sim_fp" not in st.session_state: st.session_state.sim_fp = {}
+        if "mostrar_fp" not in st.session_state: st.session_state.mostrar_fp = False
 
         # Botonera Completa
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            if st.button("♻️ Reiniciar Todo (0-0)"): st.session_state.sim_goles = {}; st.session_state.sim_fp = {}; st.rerun()
+            if st.button("♻️ Reiniciar Todo (0-0)", use_container_width=True):
+                st.session_state.sim_goles = {}
+                st.session_state.sim_fp = {}
+                st.session_state.mostrar_fp = False
+                # Limpiar claves de widgets específicas
+                for key in list(st.session_state.keys()):
+                    if key.startswith("fp_in_") or key.startswith("in_l_") or key.startswith("in_v_"):
+                        del st.session_state[key]
+                st.rerun()
         with c2:
-            if st.button("🏟️ Cargar Realidad"):
+            if st.button("🏟️ Cargar Realidad", use_container_width=True):
+                st.session_state.mostrar_fp = True # Activamos la visualización de FP
                 for p in partidos_data:
                     st.session_state.sim_goles[f"sl_{p['ID']}"] = p['Goles Real L'] or 0
                     st.session_state.sim_goles[f"sv_{p['ID']}"] = p['Goles Real V'] or 0
                 st.rerun()
         with c3:
-            if st.button("💾 Guardar Simulación"): st.success("Simulación guardada en caché")
+            if st.button("🧹 Borrar solo Sim", use_container_width=True):
+                # Borra solo donde no hay goles reales en Airtable
+                for p in partidos_data:
+                    if p['Goles Real L'] is None:
+                        st.session_state.sim_goles[f"sl_{p['ID']}"] = 0
+                        st.session_state.sim_goles[f"sv_{p['ID']}"] = 0
+                st.rerun()
+        with c4:
+            if st.button("💾 Guardar Simulación", use_container_width=True):
+                st.success("Guardado en sesión local")
         
         grupos_lista = sorted(list(set([p['Grupo'] for p in partidos_data if p['Grupo'] and len(p['Grupo'])==1])))
         g_sel = st.radio("Enfocar Grupo:", grupos_lista, horizontal=True)
@@ -231,27 +252,28 @@ if st.session_state.connected:
                     ca, cb, cc, cd, ce = st.columns([3, 1, 0.5, 1, 3])
                     with ca: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
                     
-                    # Usamos number_input pero guardamos el resultado manualmente para evitar el lag
-                    s_l = cb.number_input("L", 0, 20, st.session_state.sim_goles.get(f"sl_{p['ID']}", 0), key=f"in_l_{p['ID']}")
-                    st.session_state.sim_goles[f"sl_{p['ID']}"] = s_l
+                    val_l = st.session_state.sim_goles.get(f"sl_{p['ID']}", 0)
+                    val_v = st.session_state.sim_goles.get(f"sv_{p['ID']}", 0)
+                    
+                    st.session_state.sim_goles[f"sl_{p['ID']}"] = cb.number_input("L", 0, 20, val_l, key=f"in_l_{p['ID']}")
                     cc.write(":")
-                    s_v = cd.number_input("V", 0, 20, st.session_state.sim_goles.get(f"sv_{p['ID']}", 0), key=f"in_v_{p['ID']}")
-                    st.session_state.sim_goles[f"sv_{p['ID']}"] = s_v
+                    st.session_state.sim_goles[f"sv_{p['ID']}"] = cd.number_input("V", 0, 20, val_v, key=f"in_v_{p['ID']}")
                     
                     with ce: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
             
-            # FAIR PLAY: Lista fija alfabéticamente para que NO SALTEN
-            st.write("🚩 **Ajuste de Fair Play (Tarjetas)**")
-            # Obtenemos equipos del grupo y los ordenamos por NOMBRE (fijo), no por puntos
-            equipos_fijos = sorted(df_global[df_global['Grupo'] == g_sel]['Equipo'].tolist())
-            cols_fp = st.columns(4)
-            for i, eq_name in enumerate(equipos_fijos):
-                with cols_fp[i % 4]:
-                    band = df_global[df_global['Equipo'] == eq_name]['Flag'].values[0]
-                    st.image(band, width=25)
-                    # El valor del input es el ajuste manual (ej: -3)
-                    ajuste = st.number_input(f"{eq_name}", -50, 0, st.session_state.sim_fp.get(eq_name, 0), key=f"fp_in_{eq_name}")
-                    st.session_state.sim_fp[eq_name] = ajuste
+            # FAIR PLAY CONDICIONAL: Solo aparece si se pulsó "Cargar Realidad"
+            if st.session_state.mostrar_fp:
+                st.write("🚩 **Ajuste de Fair Play (Tarjetas)**")
+                equipos_fijos = sorted(df_global[df_global['Grupo'] == g_sel]['Equipo'].tolist())
+                cols_fp = st.columns(4)
+                for i, eq_name in enumerate(equipos_fijos):
+                    with cols_fp[i % 4]:
+                        # Buscamos la bandera en el DataFrame global
+                        row = df_global[df_global['Equipo'] == eq_name]
+                        if not row.empty:
+                            st.image(row['Flag'].values[0], width=25)
+                            ajuste = st.number_input(f"{eq_name}", -50, 0, st.session_state.sim_fp.get(eq_name, 0), key=f"fp_in_{eq_name}")
+                            st.session_state.sim_fp[eq_name] = ajuste
 
         with col_table:
             st.markdown(f"### 📊 Posiciones Grupo {g_sel}")
@@ -262,12 +284,9 @@ if st.session_state.connected:
             terceros = []
             for g in grupos_lista:
                 df_g = df_global[df_global['Grupo'] == g]
-                if len(df_g) >= 3:
-                    # El tercero es el que quedó en la posición 2 (índice 2) tras el ordenamiento FIFA
-                    terceros.append(df_g.iloc[2])
+                if len(df_g) >= 3: terceros.append(df_g.iloc[2])
             
             if terceros:
-                # Ordenar la tabla de terceros con el mismo criterio FIFA
                 df_3 = pd.DataFrame(terceros).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True]).reset_index(drop=True)
                 def style_3(s): return ['background-color: #2ecc7133' if s.name < 8 else '' for _ in s]
                 st.dataframe(df_3[['Flag', 'Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'FP']].style.apply(style_3, axis=1), 
@@ -275,7 +294,6 @@ if st.session_state.connected:
 
         st.divider()
         st.subheader("🏁 Cuadro de Eliminatorias Simuladas")
-        st.info("Listo para recibir la matriz de la FIFA y automatizar los cruces.")
         
     else: st.info("Próximamente")
 
