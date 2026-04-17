@@ -180,112 +180,134 @@ if st.session_state.connected:
             else:
                 st.success(t["no_matches"])
 
-    # --- 2. JUGAR ---
+    # --- 2. JUGAR (CON TIEMPO LÍMITE Y ORDEN) ---
     elif menu == t["nav_play"]:
         st.subheader(t["nav_play"])
-        email_user = "usuario_prueba@gmail.com"
+        email_user = "usuario_prueba@gmail.com" # Aquí luego irá el email real de Google
         preds = obtener_predicciones_usuario(email_user)
-        jornadas = sorted(list(set([p['Jornada'] for p in partidos_data if p['Jornada']])))
+        
+        # Ordenar jornadas (Fase de grupos -> 16vos -> ... -> Final)
+        orden_jornadas = ["Jornada 1", "Jornada 2", "Jornada 3", "16vos de final", "8vos de final", "4tos de final", "Semifinal", "3er puesto", "Final"]
+        jornadas_existentes = list(set([p['Jornada'] for p in partidos_data if p['Jornada']]))
+        jornadas = sorted(jornadas_existentes, key=lambda x: orden_jornadas.index(x) if x in orden_jornadas else 99)
+        
         j_sel = st.selectbox("Jornada:", jornadas)
+        
+        zona_sofia = ZoneInfo("Europe/Sofia")
+        ahora = datetime.now(zona_sofia)
+
         with st.form("f_prode"):
-            partidos_jornada = [p for p in partidos_data if p['Jornada'] == j_sel]
-            partidos_ordenados = sorted(partidos_jornada, key=lambda x: x['Grupo'] if x['Grupo'] else "")
-            for p in partidos_ordenados:
+            partidos_jornada = sorted([p for p in partidos_data if p['Jornada'] == j_sel], key=lambda x: x['ID'])
+            
+            for p in partidos_jornada:
+                # Lógica de tiempo límite (6 horas antes)
+                f_partido = datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia)
+                limite = f_partido - timedelta(hours=6)
+                bloqueado = ahora > limite
+
                 with st.container(border=True):
-                    st.caption(f"Grupo {p['Grupo']}")
-                    c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                    col_info, col_juego = st.columns([1, 4])
+                    col_info.caption(f"ID: {p['ID']} | Grupo {p['Grupo']}")
+                    if bloqueado: col_info.error("🔒 Cerrado")
+                    else: col_info.info(f"⏳ {limite.strftime('%H:%M')}")
+
+                    c1, c2, c3, c4, c5 = col_juego.columns([3, 1, 0.5, 1, 3])
                     with c1: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
+                    
                     v_l = preds.get(str(p['ID']), {}).get('goles_local', 0)
                     v_v = preds.get(str(p['ID']), {}).get('goles_visitante', 0)
-                    gl = c2.number_input("L", 0, 20, v_l, key=f"l_{p['ID']}", label_visibility="collapsed")
+                    
+                    gl = c2.number_input("L", 0, 20, v_l, key=f"l_{p['ID']}", label_visibility="collapsed", disabled=bloqueado)
                     c3.markdown("<div style='text-align:center; padding-top:10px;'>:</div>", unsafe_allow_html=True)
-                    gv = c4.number_input("V", 0, 20, v_v, key=f"v_{p['ID']}", label_visibility="collapsed")
+                    gv = c4.number_input("V", 0, 20, v_v, key=f"v_{p['ID']}", label_visibility="collapsed", disabled=bloqueado)
+                    
                     with c5: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
+
             if st.form_submit_button(t["save_btn"], use_container_width=True):
                 for p in partidos_jornada:
-                    guardar_prediccion_supabase(email_user, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
-                st.success("Guardado!"); st.balloons()
+                    # Solo guardar si no está bloqueado
+                    f_p = datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia)
+                    if ahora <= (f_p - timedelta(hours=6)):
+                        guardar_prediccion_supabase(email_user, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
+                st.success("Pronósticos actualizados"); st.rerun()
 
-    # --- 3. RESULTADOS ---
-    elif menu == t["nav_results"]:
-        st.subheader(t["nav_results"])
-        # Usamos la nueva lógica de cálculo centralizada
-        goles_real_dict = {f"sl_{p['ID']}": p['Goles Real L'] if p['Goles Real L'] is not None else 0 for p in partidos_data}
-        goles_real_dict.update({f"sv_{p['ID']}": p['Goles Real V'] if p['Goles Real V'] is not None else 0 for p in partidos_data})
-        
-        df_total = calcular_posiciones(partidos_data, goles_real_dict, {})
-        
-        grupos = sorted(df_total['Grupo'].unique()) if not df_total.empty else []
-        for g in grupos:
-            if len(g) > 1: continue # Saltamos fases eliminatorias por ahora
-            st.write(f"### GRUPO {g}")
-            df_g = df_total[df_total['Grupo'] == g]
-            st.data_editor(df_g[['Flag', 'Equipo', 'PTS', 'DG', 'GF']], column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, key=f"res_{g}", use_container_width=True)
-
-    # --- 4. SIMULADOR (OPTIMIZADO) ---
+    # --- 4. SIMULADOR (GRUPOS + FP INTEGRADO) ---
     elif menu == t["nav_sim"]:
         st.subheader(t["nav_sim"])
-        
-        # Inicializar estados de simulación
         if "sim_goles" not in st.session_state: st.session_state.sim_goles = {}
         if "sim_fp" not in st.session_state: st.session_state.sim_fp = {}
 
-        # Botonera
-        c_r1, c_r2, c_r3 = st.columns(3)
-        with c_r1:
-            if st.button("♻️ Borrar Todo", use_container_width=True):
-                st.session_state.sim_goles = {}; st.session_state.sim_fp = {}; st.rerun()
-        with c_r2:
-            if st.button("🏟️ Realidad", use_container_width=True):
-                for p in partidos_data:
-                    st.session_state.sim_goles[f"sl_{p['ID']}"] = p['Goles Real L'] or 0
-                    st.session_state.sim_goles[f"sv_{p['ID']}"] = p['Goles Real V'] or 0
-                st.rerun()
+        # Controles superiores
+        c1, c2, c3 = st.columns(3)
+        with c1: 
+            if st.button("♻️ Reiniciar Simulación"): st.session_state.sim_goles = {}; st.session_state.sim_fp = {}; st.rerun()
+        with c2:
+            if st.button("💾 Guardar Simulación"): 
+                # Aquí podrías guardar st.session_state.sim_goles en una nueva tabla de Supabase llamada 'simulaciones'
+                st.toast("Simulación guardada localmente")
 
-        st.divider()
-        grupos_sim = sorted(list(set([p['Grupo'] for p in partidos_data if p['Grupo'] and len(p['Grupo'])==1])))
-        g_sel = st.radio("Simular Grupo:", grupos_sim, horizontal=True)
+        grupos_lista = sorted(list(set([p['Grupo'] for p in partidos_data if p['Grupo'] and len(p['Grupo'])==1])))
+        g_sel = st.radio("Enfocar Grupo:", grupos_lista, horizontal=True)
 
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            st.write(f"#### Partidos Grupo {g_sel}")
-            for p in [p for p in partidos_data if p['Grupo'] == g_sel]:
+        # Cálculo global (necesario para mejores terceros)
+        df_global = calcular_posiciones(partidos_data, st.session_state.sim_goles, st.session_state.sim_fp)
+
+        col_input, col_table = st.columns([1.2, 1])
+
+        with col_input:
+            st.markdown(f"### ⚽ Partidos & Fair Play - Grupo {g_sel}")
+            partidos_g = [p for p in partidos_data if p['Grupo'] == g_sel]
+            
+            # 1. Inputs de Goles del Grupo
+            for p in partidos_g:
                 with st.container(border=True):
-                    c_a, c_b, c_c, c_d, c_e = st.columns([3, 1, 0.5, 1, 3])
-                    with c_a: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
-                    
-                    # Usamos el diccionario de sesión para evitar lags
-                    val_l = st.session_state.sim_goles.get(f"sl_{p['ID']}", 0)
-                    val_v = st.session_state.sim_goles.get(f"sv_{p['ID']}", 0)
-                    
-                    new_l = c_b.number_input("L", 0, 20, val_l, key=f"sim_in_l_{p['ID']}", label_visibility="collapsed")
-                    c_c.write(":")
-                    new_v = c_d.number_input("V", 0, 20, val_v, key=f"sim_in_v_{p['ID']}", label_visibility="collapsed")
-                    
-                    st.session_state.sim_goles[f"sl_{p['ID']}"] = new_l
-                    st.session_state.sim_goles[f"sv_{p['ID']}"] = new_v
-                    
-                    with c_e: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
+                    ca, cb, cc, cd, ce = st.columns([3, 1, 0.5, 1, 3])
+                    with ca: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
+                    st.session_state.sim_goles[f"sl_{p['ID']}"] = cb.number_input("L", 0, 20, st.session_state.sim_goles.get(f"sl_{p['ID']}", 0), key=f"s_l_{p['ID']}", label_visibility="collapsed")
+                    cc.write(":")
+                    st.session_state.sim_goles[f"sv_{p['ID']}"] = cd.number_input("V", 0, 20, st.session_state.sim_goles.get(f"sv_{p['ID']}", 0), key=f"s_v_{p['ID']}", label_visibility="collapsed")
+                    with ce: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
+            
+            # 2. Inputs de Fair Play (Integrados abajo de los partidos del grupo)
+            st.write("🚩 **Ajuste de Fair Play (Tarjetas)**")
+            equipos_g = df_global[df_global['Grupo'] == g_sel]['Equipo'].tolist()
+            cols_fp = st.columns(len(equipos_g))
+            for i, eq_name in enumerate(equipos_g):
+                with cols_fp[i]:
+                    band = df_global[df_global['Equipo'] == eq_name]['Flag'].values[0]
+                    st.image(band, width=20)
+                    st.session_state.sim_fp[eq_name] = st.number_input(f"FP {eq_name}", -20, 0, st.session_state.sim_fp.get(eq_name, 0), key=f"fp_{eq_name}", label_visibility="collapsed")
 
-        with col2:
-            st.write(f"#### Posiciones Grupo {g_sel}")
-            df_res = calcular_posiciones(partidos_data, st.session_state.sim_goles, st.session_state.sim_fp)
-            if not df_res.empty:
-                df_g = df_res[df_res['Grupo'] == g_sel]
-                st.dataframe(df_g[['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP']], column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, use_container_width=True)
-                
-                # SECCIÓN MEJORES TERCEROS (AUTOMÁTICA)
-                st.write("#### 🥉 Ranking de Terceros")
-                terceros = []
-                for grp in grupos_sim:
-                    df_aux = df_res[df_res['Grupo'] == grp]
-                    if len(df_aux) >= 3: terceros.append(df_aux.iloc[2])
-                
-                if terceros:
-                    df_3 = pd.DataFrame(terceros).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True]).reset_index(drop=True)
-                    # Resaltar los 8 que pasan
-                    st.dataframe(df_3[['Flag', 'Equipo', 'Grupo', 'PTS', 'DG']], column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, use_container_width=True)
+        with col_table:
+            st.markdown(f"### 📊 Posiciones Grupo {g_sel}")
+            st.dataframe(df_global[df_global['Grupo'] == g_sel][['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP']], 
+                         column_config={"Flag": st.column_config.ImageColumn("")}, hide_index=True, use_container_width=True)
+            
+            st.markdown("### 🥉 Ranking Mejores Terceros")
+            terceros = []
+            for g in grupos_lista:
+                df_g = df_global[df_global['Grupo'] == g]
+                if len(df_g) >= 3: terceros.append(df_g.iloc[2])
+            
+            if terceros:
+                df_3 = pd.DataFrame(terceros).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True]).reset_index(drop=True)
+                # Resaltar en verde los 8 clasificados
+                def style_3(s): return ['background-color: #2ecc7133' if s.name < 8 else '' for _ in s]
+                st.dataframe(df_3[['Flag', 'Equipo', 'Grupo', 'PTS', 'DG']].style.apply(style_3, axis=1), 
+                             column_config={"Flag": st.column_config.ImageColumn("")}, hide_index=True, use_container_width=True)
+
+        # --- SECCIÓN DE CRUCES (A la espera de tu tabla de la FIFA) ---
+        st.divider()
+        st.subheader("🏁 Cuadro de Eliminatorias Simuladas")
+        st.info("Envía la tabla de combinaciones de la FIFA para activar los cruces automáticos de 16vos.")
+        
+        # Mostrar resumen de otros grupos pequeño abajo
+        with st.expander("Ver otros grupos"):
+            cols = st.columns(3)
+            for i, g in enumerate([grp for grp in grupos_lista if grp != g_sel]):
+                with cols[i % 3]:
+                    st.caption(f"Grupo {g}")
+                    st.dataframe(df_global[df_global['Grupo'] == g][['Equipo', 'PTS']], hide_index=True, use_container_width=True)
 
     else: st.info("Próximamente")
 
