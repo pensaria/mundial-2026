@@ -198,37 +198,33 @@ if st.session_state.connected:
             st.write(f"### GRUPO {g}")
             st.dataframe(df_res[df_res['Grupo'] == g][['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP']], column_config={"Flag": st.column_config.ImageColumn("")}, hide_index=True, use_container_width=True)
 
-    # --- 4. SIMULADOR (CON REINICIO DE FP Y RENDERIZADO CONDICIONAL) ---
+    # --- 4. SIMULADOR (CON CONTROLES DE FP RESTAURADOS) ---
     elif menu == t["nav_sim"]:
         st.subheader(t["nav_sim"])
         
         # Inicialización de estados
         if "sim_goles" not in st.session_state: st.session_state.sim_goles = {}
         if "sim_fp" not in st.session_state: st.session_state.sim_fp = {}
-        if "mostrar_fp" not in st.session_state: st.session_state.mostrar_fp = False
 
-        # Botonera Completa
+        # Botonera de Control
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            if st.button("♻️ Reiniciar Todo (0-0)", use_container_width=True):
+            if st.button("♻️ Reiniciar Todo", use_container_width=True):
                 st.session_state.sim_goles = {}
                 st.session_state.sim_fp = {}
-                st.session_state.mostrar_fp = False
-                # Limpiar claves de widgets específicas
+                # Limpiamos los widgets físicamente
                 for key in list(st.session_state.keys()):
                     if key.startswith("fp_in_") or key.startswith("in_l_") or key.startswith("in_v_"):
                         del st.session_state[key]
                 st.rerun()
         with c2:
             if st.button("🏟️ Cargar Realidad", use_container_width=True):
-                st.session_state.mostrar_fp = True # Activamos la visualización de FP
                 for p in partidos_data:
                     st.session_state.sim_goles[f"sl_{p['ID']}"] = p['Goles Real L'] or 0
                     st.session_state.sim_goles[f"sv_{p['ID']}"] = p['Goles Real V'] or 0
                 st.rerun()
         with c3:
             if st.button("🧹 Borrar solo Sim", use_container_width=True):
-                # Borra solo donde no hay goles reales en Airtable
                 for p in partidos_data:
                     if p['Goles Real L'] is None:
                         st.session_state.sim_goles[f"sl_{p['ID']}"] = 0
@@ -236,11 +232,12 @@ if st.session_state.connected:
                 st.rerun()
         with c4:
             if st.button("💾 Guardar Simulación", use_container_width=True):
-                st.success("Guardado en sesión local")
+                st.success("Guardado localmente")
         
         grupos_lista = sorted(list(set([p['Grupo'] for p in partidos_data if p['Grupo'] and len(p['Grupo'])==1])))
         g_sel = st.radio("Enfocar Grupo:", grupos_lista, horizontal=True)
 
+        # Calculamos posiciones globales
         df_global = calcular_posiciones(partidos_data, st.session_state.sim_goles, st.session_state.sim_fp)
         
         col_input, col_table = st.columns([1.2, 1])
@@ -252,28 +249,28 @@ if st.session_state.connected:
                     ca, cb, cc, cd, ce = st.columns([3, 1, 0.5, 1, 3])
                     with ca: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
                     
-                    val_l = st.session_state.sim_goles.get(f"sl_{p['ID']}", 0)
-                    val_v = st.session_state.sim_goles.get(f"sv_{p['ID']}", 0)
-                    
-                    st.session_state.sim_goles[f"sl_{p['ID']}"] = cb.number_input("L", 0, 20, val_l, key=f"in_l_{p['ID']}")
+                    # Inputs de goles
+                    st.session_state.sim_goles[f"sl_{p['ID']}"] = cb.number_input("L", 0, 20, st.session_state.sim_goles.get(f"sl_{p['ID']}", 0), key=f"in_l_{p['ID']}")
                     cc.write(":")
-                    st.session_state.sim_goles[f"sv_{p['ID']}"] = cd.number_input("V", 0, 20, val_v, key=f"in_v_{p['ID']}")
+                    st.session_state.sim_goles[f"sv_{p['ID']}"] = cd.number_input("V", 0, 20, st.session_state.sim_goles.get(f"sv_{p['ID']}", 0), key=f"in_v_{p['ID']}")
                     
                     with ce: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
             
-            # FAIR PLAY CONDICIONAL: Solo aparece si se pulsó "Cargar Realidad"
-            if st.session_state.mostrar_fp:
-                st.write("🚩 **Ajuste de Fair Play (Tarjetas)**")
-                equipos_fijos = sorted(df_global[df_global['Grupo'] == g_sel]['Equipo'].tolist())
-                cols_fp = st.columns(4)
-                for i, eq_name in enumerate(equipos_fijos):
-                    with cols_fp[i % 4]:
-                        # Buscamos la bandera en el DataFrame global
-                        row = df_global[df_global['Equipo'] == eq_name]
-                        if not row.empty:
-                            st.image(row['Flag'].values[0], width=25)
-                            ajuste = st.number_input(f"{eq_name}", -50, 0, st.session_state.sim_fp.get(eq_name, 0), key=f"fp_in_{eq_name}")
-                            st.session_state.sim_fp[eq_name] = ajuste
+            # --- SECCIÓN DE FAIR PLAY RESTAURADA ---
+            st.write("🚩 **Ajuste de Fair Play (Tarjetas)**")
+            equipos_fijos = sorted(df_global[df_global['Grupo'] == g_sel]['Equipo'].tolist())
+            cols_fp = st.columns(4)
+            for i, eq_name in enumerate(equipos_fijos):
+                with cols_fp[i % 4]:
+                    row = df_global[df_global['Equipo'] == eq_name]
+                    if not row.empty:
+                        st.image(row['Flag'].values[0], width=20)
+                        # Restauramos el input de Fair Play permanente
+                        st.session_state.sim_fp[eq_name] = st.number_input(
+                            f"{eq_name}", -50, 50, 
+                            st.session_state.sim_fp.get(eq_name, 0), 
+                            key=f"fp_in_{eq_name}"
+                        )
 
         with col_table:
             st.markdown(f"### 📊 Posiciones Grupo {g_sel}")
@@ -292,29 +289,20 @@ if st.session_state.connected:
                 st.dataframe(df_3[['Flag', 'Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'FP']].style.apply(style_3, axis=1), 
                              column_config={"Flag": st.column_config.ImageColumn("")}, hide_index=True, use_container_width=True)
 
-        # --- SECCIÓN: VER CUADRO COMPLETO (LOS 12 GRUPOS) ---
+        # --- SECCIÓN: VER CUADRO COMPLETO ---
         st.divider()
         with st.expander("🌍 Ver Cuadro Completo (Todos los Grupos)", expanded=False):
-            st.markdown("### 📋 Tablas de Posiciones Actuales")
-            # Creamos una cuadrícula de 4 columnas para que entren 3 grupos por fila (4x3 = 12)
             filas_grupos = [grupos_lista[i:i + 4] for i in range(0, len(grupos_lista), 4)]
-            
             for fila in filas_grupos:
                 cols = st.columns(4)
                 for i, g_id in enumerate(fila):
                     with cols[i]:
                         st.markdown(f"**Grupo {g_id}**")
                         df_mini = df_global[df_global['Grupo'] == g_id][['Flag', 'Equipo', 'PTS', 'DG']]
-                        st.dataframe(
-                            df_mini, 
-                            column_config={"Flag": st.column_config.ImageColumn("")}, 
-                            hide_index=True, 
-                            use_container_width=True
-                        )
+                        st.dataframe(df_mini, column_config={"Flag": st.column_config.ImageColumn("")}, hide_index=True, use_container_width=True)
 
         st.divider()
         st.subheader("🏁 Cuadro de Eliminatorias Simuladas")
-        # Aquí es donde el usuario enviará la matriz para programar los 16vos
         
     else: st.info("Próximamente")
 
