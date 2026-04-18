@@ -37,42 +37,63 @@ supabase = init_supabase()
 
 # --- 1. NUEVAS FUNCIONES DE DATOS OPTIMIZADAS ---
 
-@st.cache_data(ttl=600)  # Caché de 10 minutos para no saturar Airtable
+@st.cache_data(ttl=600)
 def obtener_datos_base():
-    """Trae partidos y equipos una sola vez y los organiza en memoria."""
+    """Trae partidos y equipos de forma independiente para asegurar rankings y jornadas precisas."""
     headers = {"Authorization": f"Bearer {st.secrets['airtable']['api_key']}"}
     base_url = f"https://api.airtable.com/v0/{st.secrets['airtable']['base_id']}"
     
-    # Traer Partidos
+    # 1. Traer todos los Equipos (para tener Rankings y Banderas de los 48)
+    r_equipos = requests.get(f"{base_url}/Equipos", headers=headers).json()
+    equipos_dict = {}
+    for record in r_equipos.get('records', []):
+        f = record['fields']
+        nombre_es = f.get("Nombre")
+        if nombre_es:
+            equipos_dict[nombre_es] = {
+                "nombre_en": f.get("Nombre EN", nombre_es),
+                "ranking": int(f.get("Ranking FIFA", 100)),
+                "bandera": f.get("Bandera")[0].get("url") if f.get("Bandera") else "https://flagcdn.com/w80/un.png",
+                "grupo": f.get("Grupo")
+            }
+
+    # 2. Traer todos los Partidos
     r_partidos = requests.get(f"{base_url}/Partidos", headers=headers, params={"sort[0][field]": "ID Partido"}).json()
-    
     partidos = []
     for record in r_partidos.get('records', []):
         f = record['fields']
-        # Limpieza de datos de Airtable (Manejo de listas de búsqueda)
+        
+        # Función auxiliar para manejar campos de búsqueda (lookups)
         def get_val(campo, es_lista=True):
             val = f.get(campo)
-            return val[0] if es_lista and isinstance(val, list) and val else (val if val else None)
+            return val[0] if es_lista and isinstance(val, list) and val else (val if val is not None else None)
+
+        # Extraemos nombres para buscar en nuestro diccionario de equipos
+        loc_es = get_val("Nombre (from Equipo Local)")
+        vis_es = get_val("Nombre (from Equipo Visitante)")
 
         partidos.append({
             "ID": f.get("ID Partido"),
             "Grupo": get_val("Grupo"),
-            "Local_ES": get_val("Nombre (from Equipo Local)"),
+            "Jornada": f.get("Jornada"),
+            "Jornada_EN": f.get("Jornada EN"), # Nueva columna
+            "Local_ES": loc_es,
             "Local_EN": get_val("Nombre EN (from Equipo Local)"),
-            "Visitante_ES": get_val("Nombre (from Equipo Visitante)"),
+            "Visitante_ES": vis_es,
             "Visitante_EN": get_val("Nombre EN (from Equipo Visitante)"),
-            "Bandera_L": f.get("Bandera L")[0].get("url") if f.get("Bandera L") else "",
-            "Bandera_V": f.get("Bandera V")[0].get("url") if f.get("Bandera V") else "",
-            "Rank_L": get_val("Ranking FIFA (from Equipo Local)") or 100,
-            "Rank_V": get_val("Ranking FIFA (from Equipo Visitante)") or 100,
+            "Bandera_L": get_val("Bandera L"),
+            "Bandera_V": get_val("Bandera V"),
+            # Si el equipo existe en el diccionario, usamos su ranking real
+            "Rank_L": equipos_dict.get(loc_es, {}).get("ranking", 100) if loc_es else 100,
+            "Rank_V": equipos_dict.get(vis_es, {}).get("ranking", 100) if vis_es else 100,
             "Goles Real L": f.get("Goles Local"),
             "Goles Real V": f.get("Goles Visitante"),
             "FP_L": f.get("Fair Play L", 0),
             "FP_V": f.get("Fair Play V", 0),
-            "Fecha_Hora": f.get("Fecha y Hora"),
-            "Jornada": f.get("Jornada")
+            "Fecha_Hora": f.get("Fecha y Hora")
         })
-    return partidos
+    
+    return {"partidos": partidos, "equipos": equipos_dict}
 
 def obtener_predicciones_usuario(user):
     res = supabase.table("predicciones").select("*").eq("usuario", user).execute()
