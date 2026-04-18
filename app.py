@@ -271,52 +271,66 @@ if st.session_state.connected:
             }
         }
 
-        # 2. Orden del selector
+        # 1. Definición de Jornadas y Orden Maestro
+        jornadas_db = list(set([p['Jornada'] for p in partidos_data if p['Jornada']]))
         orden_maestro = ["🏆 Apuestas Especiales", "Jornada 1", "Jornada 2", "Jornada 3", 
                          "16vos de final", "8vos de final", "4tos de final", "Semifinal", "3er puesto y Final"]
-        jornadas_db = list(set([p['Jornada'] for p in partidos_data if p['Jornada']]))
-        opciones = [f for f in orden_maestro if f in jornadas_db or f == "🏆 Apuestas Especiales"]
+        
+        # Filtramos las opciones para mostrar solo las que existen en DB + Especiales, respetando el orden
+        opciones = ["🏆 Apuestas Especiales"] + [j for j in orden_maestro[1:] if j in jornadas_db]
         
         j_sel = st.selectbox("Selecciona tu Apuesta:", opciones)
         info_j = controles.get(j_sel, {"abre": ahora, "cierra": ahora + timedelta(days=365), "msg_antes": ""})
         
+        # 2. Validación de Apertura (Si no abrió, mensaje y stop)
         if ahora < info_j["abre"]:
             st.warning(info_j["msg_antes"])
-        else:
-            bloqueado = ahora > info_j["cierra"]
-            if bloqueado:
-                st.error("🔒 El tiempo para esta apuesta ha finalizado.")
+            st.stop()
+        
+        bloqueado = ahora > info_j["cierra"]
+        if bloqueado:
+            st.error("🔒 El tiempo para esta apuesta ha finalizado.")
+        
+        # 3. Bloque específico de Apuestas Especiales (Si entra aquí, hace stop al final)
+        if j_sel == "🏆 Apuestas Especiales":
+            st.info("Selecciona tus candidatos. Límite: 11/Jun 17:00 hs.")
             
-            if j_sel == "🏆 Apuestas Especiales":
-                st.info("Selecciona tus candidatos. Límite: 11/Jun 17:00 hs.")
-                equipos_db = []
-                for p in partidos_data:
-                    if p['Local_ES'] and p['Local_ES'] not in [e['n'] for e in equipos_db]:
-                        equipos_db.append({'n': p['Local_ES'], 'r': p['Rank_L'], 'b': p['Bandera_L']})
-                
-                nombres_todos = sorted([e['n'] for e in equipos_db])
-                opciones_sorpresa = sorted([e['n'] for e in equipos_db if int(e['r']) > 10])
-                opciones_decepcion = sorted([e['n'] for e in equipos_db if int(e['r']) <= 10])
+            # Recopilamos todos los equipos y sus rankings de las dos columnas de Airtable
+            equipos_stats = {}
+            for p in partidos_data:
+                if p['Local_ES'] and p['Local_ES'] not in equipos_stats:
+                    equipos_stats[p['Local_ES']] = int(p.get('Rank_L', 100))
+                if p['Visitante_ES'] and p['Visitante_ES'] not in equipos_stats:
+                    equipos_stats[p['Visitante_ES']] = int(p.get('Rank_V', 100))
+            
+            nombres_todos = sorted(list(equipos_stats.keys()))
+            op_sorpresa = sorted([n for n, r in equipos_stats.items() if r > 10])
+            op_decepcion = sorted([n for n, r in equipos_stats.items() if r <= 10])
 
-                with st.form("f_especiales"):
-                    c1, c2 = st.columns(2)
-                    campeon = c1.selectbox("Campeón", nombres_todos)
-                    subcampeon = c2.selectbox("Subcampeón", [e for e in nombres_todos if e != campeon])
-                    c3, c4, c5 = st.columns(3)
-                    tercero = c3.selectbox("3er Puesto", [e for e in nombres_todos if e not in [campeon, subcampeon]])
-                    sorpresa = c4.selectbox("Equipo Sorpresa (Rank > 10)", opciones_sorpresa)
-                    decepcion = c5.selectbox("Equipo Decepción (Rank <= 10)", opciones_decepcion)
-                    
-                    if st.form_submit_button("Guardar Especiales", disabled=bloqueado):
-                        if user_id:
-                            supabase.table("perfiles").upsert({
-                                "id": user_id, "email": user_email,
-                                "equipo_campeon": campeon, "equipo_subcampeon": subcampeon,
-                                "equipo_tercero": tercero, "equipo_sorpresa": sorpresa, "equipo_decepcion": decepcion
-                            }).execute()
-                            st.success("¡Apuestas guardadas correctamente!")
-                        else:
-                            st.error("No se pudo identificar tu ID de usuario. Reintenta el login.")
+            with st.form("f_especiales"):
+                c1, c2 = st.columns(2)
+                campeon = c1.selectbox("🏆 Campeón", nombres_todos)
+                subcampeon = c2.selectbox("🥈 Subcampeón (2do)", [e for e in nombres_todos if e != campeon])
+                
+                c3, c4, c5 = st.columns(3)
+                tercero = c3.selectbox("🥉 Tercer Puesto", [e for e in nombres_todos if e not in [campeon, subcampeon]])
+                sorpresa = c4.selectbox("⭐ Equipo Sorpresa (Rank > 10)", op_sorpresa)
+                decepcion = c5.selectbox("👎 Equipo Decepción (Rank <= 10)", op_decepcion)
+                
+                if st.form_submit_button("Guardar Apuestas Especiales", disabled=bloqueado):
+                    if user_id:
+                        supabase.table("perfiles").upsert({
+                            "id": user_id, "email": user_email,
+                            "equipo_campeon": campeon, "equipo_subcampeon": subcampeon,
+                            "equipo_tercero": tercero, "equipo_sorpresa": sorpresa, "equipo_decepcion": decepcion
+                        }).execute()
+                        st.success("✅ ¡Apuestas guardadas correctamente!")
+                    else:
+                        st.error("❌ No se pudo identificar tu sesión de Google.")
+            st.stop() # Evita que se dibuje el formulario de partidos normales abajo
+
+        # --- El código sigue aquí para el PRODE NORMAL si j_sel != "Apuestas Especiales" ---
+        
             else:
                 # PRODE NORMAL
                 preds = obtener_predicciones_usuario(user_email)
