@@ -103,12 +103,12 @@ def calcular_posiciones(partidos_lista, goles_sim, fp_sim):
     stats = {}
     for p in partidos_lista:
         pid = str(p['ID'])
-        # Obtenemos goles de la simulación o de la realidad
+        # Obtenemos los goles. Usamos .get() sin default para detectar si existen.
         gl = goles_sim.get(f"sl_{pid}")
         gv = goles_sim.get(f"sv_{pid}")
         
-        # Lógica para evitar empates 0-0 en partidos no jugados (A5.b.1)
-        # Si ambos son None (no hay datos en Airtable ni en Sim), saltamos el partido
+        # A5.b.1: Si no hay datos (None), el partido no se ha jugado/simulado. 
+        # No sumamos puntos para evitar el empate automático 0-0.
         if gl is None or gv is None:
             continue
 
@@ -125,13 +125,12 @@ def calcular_posiciones(partidos_lista, goles_sim, fp_sim):
             if gf > gc: stats[eq]['PTS'] += 3
             elif gf == gc: stats[eq]['PTS'] += 1
 
-    if not stats: return pd.DataFrame(columns=['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP', 'Grupo'])
+    if not stats: return pd.DataFrame()
     
     df = pd.DataFrame(stats.values())
-    # Lógica de Fair Play: Base + Sim, pero limitado a máximo 0 (A5.b.4)
+    # A5.b.4: Fair Play limitado a máximo 0
     df['FP'] = df.apply(lambda x: min(0, x['FP_Base'] + fp_sim.get(x['Equipo'], 0)), axis=1)
-    
-    # ORDEN FIFA: Puntos, DG, GF, FP (negativo es mejor), Rank
+    # Orden FIFA: PTS, DG, GF, FP (menor es mejor), Rank (menor es mejor)
     df = df.sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
     return df
 
@@ -278,27 +277,37 @@ if st.session_state.connected:
                     with ca: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
                     
                     # Inputs de goles
-                    st.session_state.sim_goles[f"sl_{p['ID']}"] = cb.number_input("L", 0, 20, st.session_state.sim_goles.get(f"sl_{p['ID']}", 0), key=f"in_l_{p['ID']}")
+                    # A5.b.3: Recuperamos el valor del estado para que "Cargar Realidad" funcione
+                    val_l = st.session_state.sim_goles.get(f"sl_{p['ID']}", 0)
+                    val_v = st.session_state.sim_goles.get(f"sv_{p['ID']}", 0)
+                    
+                    # Widget de goles
+                    res_l = cb.number_input("L", 0, 20, int(val_l), key=f"in_l_{p['ID']}", label_visibility="collapsed")
+                    st.session_state.sim_goles[f"sl_{p['ID']}"] = res_l
+                    
                     cc.write(":")
-                    st.session_state.sim_goles[f"sv_{p['ID']}"] = cd.number_input("V", 0, 20, st.session_state.sim_goles.get(f"sv_{p['ID']}", 0), key=f"in_v_{p['ID']}")
+                    
+                    res_v = cd.number_input("V", 0, 20, int(val_v), key=f"in_v_{p['ID']}", label_visibility="collapsed")
+                    st.session_state.sim_goles[f"sv_{p['ID']}"] = res_v
                     
                     with ce: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
             
-            # --- SECCIÓN DE FAIR PLAY RESTAURADA ---
+            # --- SECCIÓN DE FAIR PLAY (A5.b.4) ---
             st.write("🚩 **Ajuste de Fair Play (Tarjetas)**")
             equipos_fijos = sorted(df_global[df_global['Grupo'] == g_sel]['Equipo'].tolist())
             cols_fp = st.columns(4)
             for i, eq_name in enumerate(equipos_fijos):
                 with cols_fp[i % 4]:
-                    row = df_global[df_global['Equipo'] == eq_name]
-                    if not row.empty:
-                        st.image(row['Flag'].values[0], width=20)
-                        # Restauramos el input de Fair Play permanente
-                        st.session_state.sim_fp[eq_name] = st.number_input(
-                            f"{eq_name}", -50, 50, 
-                            st.session_state.sim_fp.get(eq_name, 0), 
-                            key=f"fp_in_{eq_name}"
-                        )
+                    # Buscamos la bandera en el DataFrame global ya que ahí están todos
+                    row_data = df_global[df_global['Equipo'] == eq_name]
+                    if not row_data.empty:
+                        st.image(row_data['Flag'].values[0], width=20)
+                    
+                    val_fp_mem = st.session_state.sim_fp.get(eq_name, 0)
+                    # Forzamos límite máximo 0 y mínimo -100
+                    st.session_state.sim_fp[eq_name] = st.number_input(
+                        f"{eq_name}", -100, 0, int(min(0, val_fp_mem)), key=f"fp_in_{eq_name}"
+                    )
 
         with col_table:
             st.markdown(f"### 📊 Posiciones Grupo {g_sel}")
