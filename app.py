@@ -151,10 +151,55 @@ if st.session_state.connected:
 
     st.title(t["title"])
 
-    # --- 1. INICIO (Se mantiene igual) ---
+    # --- 1. INICIO ---
     if menu == t["nav_home"]:
-        # ... (Mantener código anterior de nav_home)
-        pass 
+        # A2.b.1: Selector de Modo
+        modo_juego = st.sidebar.radio("🎮 Modo de Juego", ["Prode Simple", "Magic Mister"])
+        
+        if modo_juego == "Prode Simple":
+            col_rank, col_next = st.columns([1, 1.2], gap="large")
+            
+            with col_rank:
+                st.subheader(t["ranking_title"])
+                # A2.b.3: Ranking (Calculado comparando Supabase vs Airtable Real)
+                ranking = obtener_ranking_global(partidos_data)
+                if ranking:
+                    st.table(pd.DataFrame(ranking))
+                else:
+                    st.info("Aún no hay puntos procesados.")
+
+            with col_next:
+                st.subheader(t["next_matches"])
+                zona_sofia = ZoneInfo("Europe/Sofia")
+                ahora = datetime.now(zona_sofia)
+                
+                # Filtramos: que tengan fecha, que sean futuros y que ya tengan equipos definidos
+                proximos = []
+                for p in partidos_data:
+                    # Validamos que Local_ES no sea None para evitar partidos TBD de eliminación
+                    if p.get('Fecha_Hora') and p.get('Local_ES'): 
+                        try:
+                            f_dt = datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia)
+                            if f_dt > ahora:
+                                proximos.append((f_dt, p))
+                        except:
+                            continue
+                
+                # Ordenamos cronológicamente por la fecha real
+                proximos.sort(key=lambda x: x[0])
+                
+                if proximos:
+                    for f_dt, p in proximos[:5]:
+                        with st.container(border=True):
+                            st.caption(f"🆔 {p['ID']} | 📅 {f_dt.strftime('%d/%m - %H:%M')} hs")
+                            c1, c2, c3 = st.columns([2, 0.5, 2])
+                            with c1: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
+                            c2.markdown("<div style='text-align:center; margin-top:10px;'>VS</div>", unsafe_allow_html=True)
+                            with c3: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
+                else:
+                    st.success(t["no_matches"])
+        else:
+            st.warning("🚀 **Magic Mister** estará disponible próximamente. ¡Prepara tu equipo de 11!")
 
     # --- 2. JUGAR (CON TIEMPO LÍMITE) ---
     elif menu == t["nav_play"]:
