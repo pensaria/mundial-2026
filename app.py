@@ -66,8 +66,8 @@ def obtener_partidos_airtable():
                     "Visitante_EN": f.get("Nombre EN (from Equipo Visitante)")[0] if f.get("Nombre EN (from Equipo Visitante)") else f.get("Nombre (from Equipo Visitante)"),
                     "Bandera_L": f.get("Bandera L")[0].get("url") if f.get("Bandera L") else "",
                     "Bandera_V": f.get("Bandera V")[0].get("url") if f.get("Bandera V") else "",
-                    "Rank_L": r_l[0] if isinstance(r_l, list) else (r_l or 100),
-                    "Rank_V": r_v[0] if isinstance(r_v, list) else (r_v or 100),
+                    "Rank_L": int(r_l[0]) if isinstance(r_l, list) else int(r_l or 100),
+                    "Rank_V": int(r_v[0]) if isinstance(r_v, list) else int(r_v or 100),
                     "FP_L": f.get("Fair Play L", 0), "FP_V": f.get("Fair Play V", 0),
                     "Goles Real L": f.get("Goles Local"), "Goles Real V": f.get("Goles Visitante"),
                     "Fecha_Hora": f.get("Fecha y Hora"), 
@@ -101,7 +101,6 @@ def obtener_ranking_global(partidos):
 def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
     nombre = nombre_es if lang_choice == "Español" else (nombre_en or nombre_es)
     flex = "row" if align == "left" else "row-reverse"
-    # Si no hay bandera, mostrar solo el nombre
     if not url_bandera:
         return f'<div style="display: flex; align-items: center; justify-content: {"flex-start" if align=="left" else "flex-end"}; flex-direction: {flex}; gap: 10px;"><span>{nombre}</span></div>'
     return f'<div style="display: flex; align-items: center; justify-content: {"flex-start" if align=="left" else "flex-end"}; flex-direction: {flex}; gap: 10px;"><img src="{url_bandera}" width="30" style="border-radius:2px;"><span>{nombre}</span></div>'
@@ -163,92 +162,106 @@ if st.session_state.connected:
             st.info("La interfaz de Magic Mister está en desarrollo. / Magic Mister interface is under development.")
         else:
             st.subheader(t["nav_play"])
-            email_user = "usuario_prueba@gmail.com" # Hasta que se implemente Auth real
+            email_user = "usuario_prueba@gmail.com" 
             preds = obtener_predicciones_usuario(email_user)
             
-            # Apuestas especiales
+            # --- FASE 1: APUESTAS ESPECIALES REPARADAS ---
             with st.expander(t["special_bets"], expanded=False):
-                # Generar lista de equipos únicos
-                lista_equipos_es = sorted(list(set([p['Local_ES'] for p in partidos_data if p['Local_ES']])))
-                lista_equipos_en = sorted(list(set([p['Local_EN'] for p in partidos_data if p['Local_EN']])))
-                lista_eq = lista_equipos_es if lang == "Español" else lista_equipos_en
-                lista_eq = [""] + lista_eq
+                # Extraemos equipos y rankings
+                dict_equipos = {}
+                for p in partidos_data:
+                    if p['Local_ES']: dict_equipos[p['Local_ES'] if lang == "Español" else p['Local_EN']] = p['Rank_L']
+                    if p['Visitante_ES']: dict_equipos[p['Visitante_ES'] if lang == "Español" else p['Visitante_EN']] = p['Rank_V']
+                
+                lista_todos = [""] + sorted(list(dict_equipos.keys()))
+                lista_sorpresa = [""] + sorted([eq for eq, rank in dict_equipos.items() if rank > 10])
+                lista_decepcion = [""] + sorted([eq for eq, rank in dict_equipos.items() if rank <= 10])
                 
                 c1, c2, c3 = st.columns(3)
-                c1.selectbox(t["champion"], lista_eq)
-                c2.selectbox(t["runner_up"], lista_eq)
-                c3.selectbox(t["third_place"], lista_eq)
+                val_camp = c1.selectbox(t["champion"], lista_todos)
+                val_sub = c2.selectbox(t["runner_up"], lista_todos)
+                val_ter = c3.selectbox(t["third_place"], lista_todos)
+                
                 c4, c5 = st.columns(2)
-                c4.selectbox(t["surprise"], lista_eq)
-                c5.selectbox(t["disappointment"], lista_eq)
-                if st.button(t["save_special"]):
+                val_sorp = c4.selectbox(t["surprise"], lista_sorpresa)
+                val_dec = c5.selectbox(t["disappointment"], lista_decepcion)
+                
+                # Validaciones
+                top3_seleccionados = [x for x in [val_camp, val_sub, val_ter] if x != ""]
+                hay_error_top3 = len(top3_seleccionados) != len(set(top3_seleccionados))
+                
+                if hay_error_top3:
+                    st.error("Error: No puedes repetir el mismo equipo en el Top 3 (Campeón, Subcampeón, 3er Puesto)." if lang == "Español" else "Error: You cannot repeat the same team in the Top 3.")
+                
+                if val_dec != "" and val_dec in top3_seleccionados:
+                    st.warning("Este equipo fue elegido para los primeros 3 puestos, ¿estás seguro de tu elección?" if lang == "Español" else "This team was chosen for the Top 3 spots, are you sure of your choice?")
+
+                if st.button(t["save_special"], disabled=hay_error_top3):
                     st.success("Apuestas especiales guardadas!" if lang == "Español" else "Special bets saved!")
 
             st.divider()
 
-            # Selector de Jornada
-            jornada_key = 'Jornada_ES' if lang == "Español" else 'Jornada_EN'
-            jornadas_list = []
-            for p in partidos_data:
-                j_val = p.get(jornada_key)
-                if j_val and j_val not in jornadas_list:
-                    jornadas_list.append(j_val)
+            # --- FASE 1: JORNADAS COMPLETAS ---
+            jornadas_fijas_es = ["Fecha 1", "Fecha 2", "Fecha 3", "16vos de final", "8vos de final", "4tos de final", "Semifinales", "Final y 3er puesto"]
+            jornadas_fijas_en = ["Matchday 1", "Matchday 2", "Matchday 3", "Round of 32", "Round of 16", "Quarter-finals", "Semi-finals", "Final & 3rd place"]
+            jornadas_list = jornadas_fijas_es if lang == "Español" else jornadas_fijas_en
             
-            if not jornadas_list:
-                st.warning("No hay jornadas definidas.")
+            j_sel = st.selectbox("Jornada / Matchday:", jornadas_list)
+            
+            mensajes_bloqueo = {
+                "16vos de final": "Los equipos se definirán tras la finalización de la Fecha 3. ¡Vuelve el 28/6/2026 a las 8:00 hs!",
+                "Round of 32": "Teams will be defined after Matchday 3. Come back on 6/28/2026 at 8:00 AM!",
+                "8vos de final": "Los equipos se definirán tras los 16vos. ¡Vuelve el 04/7/2026 a las 8:00 hs!",
+                "Round of 16": "Teams will be defined after the Round of 32. Come back on 7/04/2026 at 8:00 AM!",
+                "4tos de final": "Los equipos se definirán tras los 8vos. ¡Vuelve el 08/7/2026 a las 2:00 hs!",
+                "Quarter-finals": "Teams will be defined after the Round of 16. Come back on 7/08/2026 at 2:00 AM!",
+                "Semifinales": "Los equipos se definirán tras los 4tos. ¡Vuelve el 12/7/2026 a las 7:00 hs!",
+                "Semi-finals": "Teams will be defined after the Quarter-finals. Come back on 7/12/2026 at 7:00 AM!",
+                "Final y 3er puesto": "Los equipos se definirán tras las Semis. ¡Vuelve el 16/7/2026 a las 1:00 hs!",
+                "Final & 3rd place": "Teams will be defined after the Semi-finals. Come back on 7/16/2026 at 1:00 AM!"
+            }
+
+            if j_sel in mensajes_bloqueo:
+                st.info(mensajes_bloqueo[j_sel])
             else:
-                j_sel = st.selectbox("Jornada / Matchday:", jornadas_list)
-                
-                mensajes_bloqueo = {
-                    "16vos de final": "Los equipos se definirán tras la finalización de la Fecha 3. ¡Vuelve el 28/6/2026 a las 8:00 hs!",
-                    "Round of 32": "Teams will be defined after Matchday 3. Come back on 6/28/2026 at 8:00 AM!",
-                    "8vos de final": "Los equipos se definirán tras los 16vos. ¡Vuelve el 04/7/2026 a las 8:00 hs!",
-                    "Round of 16": "Teams will be defined after the Round of 32. Come back on 7/04/2026 at 8:00 AM!",
-                    "4tos de final": "Los equipos se definirán tras los 8vos. ¡Vuelve el 08/7/2026 a las 2:00 hs!",
-                    "Quarter-finals": "Teams will be defined after the Round of 16. Come back on 7/08/2026 at 2:00 AM!",
-                    "Semifinales": "Los equipos se definirán tras los 4tos. ¡Vuelve el 12/7/2026 a las 7:00 hs!",
-                    "Semi-finals": "Teams will be defined after the Quarter-finals. Come back on 7/12/2026 at 7:00 AM!",
-                    "Final y 3er puesto": "Los equipos se definirán tras las Semis. ¡Vuelve el 16/7/2026 a las 1:00 hs!",
-                    "Final & 3rd place": "Teams will be defined after the Semi-finals. Come back on 7/16/2026 at 1:00 AM!"
-                }
+                with st.form("f_prode"):
+                    # Filtramos por jornada pero usamos Airtable key real si existe
+                    jornada_key = 'Jornada_ES' if lang == "Español" else 'Jornada_EN'
+                    partidos_jornada = [p for p in partidos_data if p.get(jornada_key) == j_sel]
+                    partidos_ordenados = sorted(partidos_jornada, key=lambda x: str(x['Grupo']))
 
-                if j_sel in mensajes_bloqueo:
-                    st.info(mensajes_bloqueo[j_sel])
-                else:
-                    with st.form("f_prode"):
-                        partidos_jornada = [p for p in partidos_data if p.get(jornada_key) == j_sel]
-                        partidos_ordenados = sorted(partidos_jornada, key=lambda x: str(x['Grupo']))
-
-                        for p in partidos_ordenados:
-                            with st.container(border=True):
-                                st.caption(f"Grupo {p['Grupo']}")
-                                c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                                
-                                with c1: 
-                                    st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
-                                
-                                v_l = preds.get(str(p['ID']), {}).get('goles_local', 0)
-                                v_v = preds.get(str(p['ID']), {}).get('goles_visitante', 0)
-                                
-                                gl = c2.number_input("L", 0, 20, v_l, key=f"l_{p['ID']}", label_visibility="collapsed")
-                                c3.markdown("<div style='text-align:center; padding-top:10px;'>:</div>", unsafe_allow_html=True)
-                                gv = c4.number_input("V", 0, 20, v_v, key=f"v_{p['ID']}", label_visibility="collapsed")
-                                
-                                with c5: 
-                                    st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
-                        
-                        if st.form_submit_button(t["save_btn"], use_container_width=True):
-                            for p in partidos_jornada:
-                                guardar_prediccion_supabase(email_user, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
-                            st.success("¡Pronósticos guardados correctamente!" if lang == "Español" else "Predictions saved successfully!")
-                            st.balloons()
+                    if not partidos_ordenados:
+                        st.info("No hay partidos cargados para esta jornada." if lang == "Español" else "No matches loaded for this matchday.")
+                    
+                    for p in partidos_ordenados:
+                        with st.container(border=True):
+                            st.caption(f"Grupo {p['Grupo']}")
+                            c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                            
+                            with c1: 
+                                st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
+                            
+                            v_l = preds.get(str(p['ID']), {}).get('goles_local', 0)
+                            v_v = preds.get(str(p['ID']), {}).get('goles_visitante', 0)
+                            
+                            gl = c2.number_input("L", 0, 20, v_l, key=f"l_{p['ID']}", label_visibility="collapsed")
+                            c3.markdown("<div style='text-align:center; padding-top:10px;'>:</div>", unsafe_allow_html=True)
+                            gv = c4.number_input("V", 0, 20, v_v, key=f"v_{p['ID']}", label_visibility="collapsed")
+                            
+                            with c5: 
+                                st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
+                    
+                    if st.form_submit_button(t["save_btn"], use_container_width=True):
+                        for p in partidos_jornada:
+                            guardar_prediccion_supabase(email_user, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
+                        st.success("¡Pronósticos guardados correctamente!" if lang == "Español" else "Predictions saved successfully!")
+                        st.balloons()
 
     # --- 3. RESULTADOS ---
     elif menu == t["nav_results"]:
         st.subheader(t["nav_results"])
         stats = {}
         
-        # 1. Pre-cargar TODOS los equipos con 0 (Soluciona el problema de los grupos faltantes)
         for p in partidos_data:
             if p['Grupo'] != "Definir":
                 for eq_key, bnd_key, rnk_key in [('Local', 'Bandera_L', 'Rank_L'), ('Visitante', 'Bandera_V', 'Rank_V')]:
@@ -259,7 +272,6 @@ if st.session_state.connected:
                             'DG': 0, 'GF': 0, 'GC': 0, 'FP': 0, 'Rank': p[rnk_key], 'Grupo': p['Grupo']
                         }
 
-        # 2. Cargar los resultados reales sumando a las stats
         for p in [p for p in partidos_data if p['Goles Real L'] is not None and p['Grupo'] != "Definir"]:
             eq_l = p['Local_ES'] if lang == "Español" else p['Local_EN']
             eq_v = p['Visitante_ES'] if lang == "Español" else p['Visitante_EN']
@@ -276,13 +288,12 @@ if st.session_state.connected:
         grupos = sorted(list(set([s['Grupo'] for s in stats.values()])))
         tablas_finales = {}
         
-        # Mostrar Tablas de Posiciones
         for g in grupos:
             st.write(f"### GRUPO {g}")
             df_g = pd.DataFrame([s for s in stats.values() if s['Grupo'] == g]).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
             tablas_finales[g] = df_g
-            # Se agregó GC a la vista
-            st.data_editor(df_g[['Flag', 'Equipo', 'PJ', 'PTS', 'DG', 'GF', 'GC']], column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, key=f"res_{g}", use_container_width=True)
+            # FASE 1: Se agregó FP a la vista
+            st.data_editor(df_g[['Flag', 'Equipo', 'PJ', 'PTS', 'DG', 'GF', 'GC', 'FP']], column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, key=f"res_{g}", use_container_width=True)
 
         st.divider()
         st.subheader("🥉 Mejores Terceros / Best Third-Placed Teams")
@@ -292,11 +303,10 @@ if st.session_state.connected:
         if terceros:
             df_3 = pd.DataFrame(terceros).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True]).reset_index(drop=True)
             def highlight_3(s): return ['background-color: rgba(46, 204, 113, 0.3)' if s.name < 8 else '' for _ in s]
-            st.data_editor(df_3[['Flag', 'Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'GC']].style.apply(highlight_3, axis=1), column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, use_container_width=True)
+            st.data_editor(df_3[['Flag', 'Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'GC', 'FP']].style.apply(highlight_3, axis=1), column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, use_container_width=True)
 
         st.divider()
         
-        # --- DESPLEGABLE DE PARTIDOS REALES JUGADOS ---
         st.subheader("📅 " + ("Resultados por Jornada" if lang == "Español" else "Results by Matchday"))
         jornada_key = 'Jornada_ES' if lang == "Español" else 'Jornada_EN'
         jornadas_res_list = []
@@ -314,7 +324,6 @@ if st.session_state.connected:
                     c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
                     with c1: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
                     
-                    # Mostrar goles si los hay, si no mostrar guión
                     gl_txt = p['Goles Real L'] if p['Goles Real L'] is not None else "-"
                     gv_txt = p['Goles Real V'] if p['Goles Real V'] is not None else "-"
                     
@@ -324,37 +333,93 @@ if st.session_state.connected:
                     
                     with c5: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
         
-        # --- SECCIÓN DE CRUCES RESULTADOS CON ESTRUCTURA ENFRENTADA ---
+        # --- FASE 1: DESPLEGABLE Y CUADROS DE ELIMINATORIAS REALES ---
         st.divider()
-        st.subheader("🏆 Knockout Stage / Fase de Eliminatorias (16vos)")
+        st.subheader("🏆 Knockout Stage / Fase de Eliminatorias")
+        
+        fases_eliminatorias = ["16vos", "8vos", "4tos", "Semifinales", "Final y 3er Puesto"]
+        fase_ko_sel = st.selectbox("Ver Fase / View Stage:", fases_eliminatorias)
         
         col_izq, col_der = st.columns(2)
         
-        with col_izq:
-            st.markdown("#### Llave Izquierda")
-            cruces_izq = [
-                ("M74", "1E", "3ro (A/B/C/D/F)"), ("M77", "1I", "3ro (C/D/F/G/H)"),
-                ("M73", "2A", "2B"), ("M75", "1F", "2C"),
-                ("M83", "2K", "2L"), ("M84", "1H", "2J"),
-                ("M81", "1D", "3ro (B/E/F/I/J)"), ("M82", "1G", "3ro (A/E/H/I/J)")
-            ]
-            for match_id, eq1, eq2 in cruces_izq:
-                with st.container(border=True):
-                    st.caption(match_id)
-                    st.markdown(f"**{eq1}** vs **{eq2}**")
+        if fase_ko_sel == "16vos":
+            with col_izq:
+                st.markdown("#### Llave Izquierda")
+                cruces_izq = [
+                    ("M74", "1E", "3ro (A/B/C/D/F)"), ("M77", "1I", "3ro (C/D/F/G/H)"),
+                    ("M73", "2A", "2B"), ("M75", "1F", "2C"),
+                    ("M83", "2K", "2L"), ("M84", "1H", "2J"),
+                    ("M81", "1D", "3ro (B/E/F/I/J)"), ("M82", "1G", "3ro (A/E/H/I/J)")
+                ]
+                for match_id, eq1, eq2 in cruces_izq:
+                    with st.container(border=True):
+                        st.caption(match_id)
+                        st.markdown(f"**{eq1}** vs **{eq2}**")
 
-        with col_der:
-            st.markdown("#### Llave Derecha")
-            cruces_der = [
-                ("M76", "1C", "2F"), ("M78", "2E", "2I"),
-                ("M79", "1A", "3ro (C/E/F/H/I)"), ("M80", "1L", "3ro (E/H/I/J/K)"),
-                ("M86", "1J", "2H"), ("M88", "2D", "2G"),
-                ("M85", "1B", "3ro (E/F/G/I/J)"), ("M87", "1K", "3ro (D/E/I/J/L)")
-            ]
-            for match_id, eq1, eq2 in cruces_der:
+            with col_der:
+                st.markdown("#### Llave Derecha")
+                cruces_der = [
+                    ("M76", "1C", "2F"), ("M78", "2E", "2I"),
+                    ("M79", "1A", "3ro (C/E/F/H/I)"), ("M80", "1L", "3ro (E/H/I/J/K)"),
+                    ("M86", "1J", "2H"), ("M88", "2D", "2G"),
+                    ("M85", "1B", "3ro (E/F/G/I/J)"), ("M87", "1K", "3ro (D/E/I/J/L)")
+                ]
+                for match_id, eq1, eq2 in cruces_der:
+                    with st.container(border=True):
+                        st.caption(match_id)
+                        st.markdown(f"**{eq1}** vs **{eq2}**")
+                        
+        elif fase_ko_sel == "8vos":
+            with col_izq:
+                st.markdown("#### Llave Izquierda")
+                for match_id, eq1, eq2 in [("M89", "W74", "W77"), ("M90", "W73", "W75"), ("M93", "W83", "W84"), ("M94", "W81", "W82")]:
+                    with st.container(border=True):
+                        st.caption(match_id)
+                        st.markdown(f"**{eq1}** vs **{eq2}**")
+            with col_der:
+                st.markdown("#### Llave Derecha")
+                for match_id, eq1, eq2 in [("M91", "W76", "W78"), ("M92", "W79", "W80"), ("M95", "W86", "W88"), ("M96", "W85", "W87")]:
+                    with st.container(border=True):
+                        st.caption(match_id)
+                        st.markdown(f"**{eq1}** vs **{eq2}**")
+
+        elif fase_ko_sel == "4tos":
+            with col_izq:
+                st.markdown("#### Llave Izquierda")
+                for match_id, eq1, eq2 in [("M97", "W89", "W90"), ("M98", "W93", "W94")]:
+                    with st.container(border=True):
+                        st.caption(match_id)
+                        st.markdown(f"**{eq1}** vs **{eq2}**")
+            with col_der:
+                st.markdown("#### Llave Derecha")
+                for match_id, eq1, eq2 in [("M99", "W91", "W92"), ("M100", "W95", "W96")]:
+                    with st.container(border=True):
+                        st.caption(match_id)
+                        st.markdown(f"**{eq1}** vs **{eq2}**")
+
+        elif fase_ko_sel == "Semifinales":
+            with col_izq:
+                st.markdown("#### Llave Izquierda")
                 with st.container(border=True):
-                    st.caption(match_id)
-                    st.markdown(f"**{eq1}** vs **{eq2}**")
+                    st.caption("M101")
+                    st.markdown(f"**W97** vs **W98**")
+            with col_der:
+                st.markdown("#### Llave Derecha")
+                with st.container(border=True):
+                    st.caption("M102")
+                    st.markdown(f"**W99** vs **W100**")
+                    
+        elif fase_ko_sel == "Final y 3er Puesto":
+            with col_izq:
+                st.markdown("#### 🥉 3er Puesto")
+                with st.container(border=True):
+                    st.caption("M103")
+                    st.markdown(f"**RU101** vs **RU102**")
+            with col_der:
+                st.markdown("#### 🏆 Final")
+                with st.container(border=True):
+                    st.caption("M104")
+                    st.markdown(f"**W101** vs **W102**")
 
     # --- 4. SIMULADOR ---
     elif menu == t["nav_sim"]:
@@ -362,7 +427,7 @@ if st.session_state.connected:
         if "sim_fp" not in st.session_state: 
             st.session_state.sim_fp = {p['Local_ES']: 0 for p in partidos_data}
 
-        # --- 1. BOTONERA DE CONTROL (V1 Restaurada) ---
+        # --- BOTONERA SIMULADOR ---
         c_r1, c_r2, c_r3 = st.columns(3)
         with c_r1:
             if st.button("♻️ " + ("Total Reset (0-0)" if lang=="English" else "Borrar Todo (0-0)"), use_container_width=True):
@@ -384,7 +449,7 @@ if st.session_state.connected:
 
         st.divider()
 
-        # --- 2. DISEÑO POR GRUPO ---
+        # --- DISEÑO POR GRUPO SIMULADOR ---
         grupos_disponibles = sorted(list(set([p['Grupo'] for p in partidos_data if len(p['Grupo']) == 1 and p['Grupo'] != "Definir"])))
         if not grupos_disponibles:
             st.warning("No hay grupos definidos.")
@@ -471,7 +536,7 @@ if st.session_state.connected:
                         hide_index=True, use_container_width=True, disabled=True
                     )
                     
-            # --- CRUCES ---
+            # --- CRUCES SIMULADOS ---
             st.divider()
             st.subheader("🏁 " + ("Simulated Knockout Stage" if lang == "English" else "Cruces Simulados"))
             txt_sim_def = "Presiona 'Calcular Posiciones' para actualizar." if lang == "Español" else "Press 'Calcular Posiciones' to update."
