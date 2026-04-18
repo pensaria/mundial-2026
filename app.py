@@ -264,9 +264,45 @@ if st.session_state.connected:
             
             # Si es Especiales, mostramos selectores, si no, el formulario de partidos
             if j_sel == "🏆 Apuestas Especiales":
-                # Lógica de Campeón, Sorpresa, Decepción aquí...
-                pass 
+                st.info("Selecciona tus candidatos. Esta apuesta se bloquea junto con la Fecha 1.")
+                
+                # Obtenemos lista de equipos para los selectores
+                equipos_list = sorted(list(set([p['Local_ES'] for p in partidos_data if p['Local_ES']])))
+                
+                # Filtros por Ranking FIFA (Punto 3)
+                # Sorpresa: Ranking > 10
+                equipos_sorpresa = [p['Local_ES'] for p in partidos_data if p['Rank_L'] > 10]
+                equipos_sorpresa = sorted(list(set([e for e in equipos_sorpresa if e])))
+                
+                # Decepción: Ranking <= 10
+                equipos_decepcion = [p['Local_ES'] for p in partidos_data if p['Rank_L'] <= 10]
+                equipos_decepcion = sorted(list(set([e for e in equipos_decepcion if e])))
+
+                with st.form("f_especiales"):
+                    c1, c2 = st.columns(2)
+                    campeon = c1.selectbox("Campeón", equipos_list)
+                    subcampeon = c2.selectbox("Subcampeón (2do)", equipos_list)
+                    
+                    c3, c4, c5 = st.columns(3)
+                    tercero = c3.selectbox("Tercer Puesto", equipos_list)
+                    sorpresa = c4.selectbox("Equipo Sorpresa (Ranking > 10)", equipos_sorpresa)
+                    decepcion = c5.selectbox("Equipo Decepción (Ranking <= 10)", equipos_decepcion)
+                    
+                    if st.form_submit_button("Guardar Apuestas Especiales", disabled=bloqueado):
+                        # Aquí guardamos en la tabla 'perfiles' de Supabase
+                        supabase.table("perfiles").upsert({
+                            "id": email_user, # Usando el mail como ID temporalmente
+                            "equipo_campeon": campeon,
+                            "equipo_subcampeon": subcampeon,
+                            "equipo_tercero": tercero,
+                            "equipo_sorpresa": sorpresa,
+                            "equipo_decepcion": decepcion
+                        }).execute()
+                        st.success("¡Apuestas especiales guardadas!")
+
             else:
+                # IMPORTANTE: Todo lo que sigue (el prode normal) debe estar indentado aquí
+                with st.form("f_prode"):
                 # Aquí sigue tu 'with st.form("f_prode")' corregido
 
         with st.form("f_prode"):
