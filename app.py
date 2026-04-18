@@ -329,9 +329,6 @@ if st.session_state.connected:
                         st.error("❌ No se pudo identificar tu sesión de Google.")
             st.stop() # Evita que se dibuje el formulario de partidos normales abajo
 
-        # --- El código sigue aquí para el PRODE NORMAL si j_sel != "Apuestas Especiales" ---
-        
-            else:
                 # PRODE NORMAL
                 preds = obtener_predicciones_usuario(user_email)
                 with st.form("f_prode"):
