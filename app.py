@@ -99,6 +99,42 @@ def obtener_ranking_global(partidos):
             elif (rl > rv and pl > pv) or (rl < rv and pl < pv) or (rl == rv and pl == pv): puntos[user] += 2
     return sorted([{"Usuario": k, "Puntos": v} for k, v in puntos.items()], key=lambda x: x['Puntos'], reverse=True)
 
+def calcular_posiciones(partidos_lista, goles_sim, fp_sim):
+    stats = {}
+    for p in partidos_lista:
+        pid = str(p['ID'])
+        # Obtenemos goles de la simulación o de la realidad
+        gl = goles_sim.get(f"sl_{pid}")
+        gv = goles_sim.get(f"sv_{pid}")
+        
+        # Lógica para evitar empates 0-0 en partidos no jugados (A5.b.1)
+        # Si ambos son None (no hay datos en Airtable ni en Sim), saltamos el partido
+        if gl is None or gv is None:
+            continue
+
+        for eq, gf, gc, rnk, bnd, grp, fp_base in [
+            (p['Local_ES'], gl, gv, p['Rank_L'], p['Bandera_L'], p['Grupo'], p['FP_L']),
+            (p['Visitante_ES'], gv, gl, p['Rank_V'], p['Bandera_V'], p['Grupo'], p['FP_V'])
+        ]:
+            if not eq or not grp or len(str(grp)) > 1: continue
+            if eq not in stats:
+                stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP_Base': fp_base}
+            
+            stats[eq]['GF'] += gf
+            stats[eq]['DG'] += (gf - gc)
+            if gf > gc: stats[eq]['PTS'] += 3
+            elif gf == gc: stats[eq]['PTS'] += 1
+
+    if not stats: return pd.DataFrame(columns=['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP', 'Grupo'])
+    
+    df = pd.DataFrame(stats.values())
+    # Lógica de Fair Play: Base + Sim, pero limitado a máximo 0 (A5.b.4)
+    df['FP'] = df.apply(lambda x: min(0, x['FP_Base'] + fp_sim.get(x['Equipo'], 0)), axis=1)
+    
+    # ORDEN FIFA: Puntos, DG, GF, FP (negativo es mejor), Rank
+    df = df.sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
+    return df
+
 def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
     nombre = nombre_es if lang_choice == "Español" else (nombre_en or nombre_es)
     if not nombre: nombre = "TBD"
