@@ -101,9 +101,20 @@ def obtener_ranking_global(partidos):
 
 def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
     nombre = nombre_es if lang_choice == "Español" else (nombre_en or nombre_es)
+    if not nombre: nombre = "TBD"
+    # Bandera por defecto si no hay url
+    if not url_bandera: url_bandera = "https://flagcdn.com/w80/un.png"
+    
     flex = "row" if align == "left" else "row-reverse"
-    return f'<div style="display: flex; align-items: center; flex-direction: {flex}; gap: 10px;"><img src="{url_bandera}" width="30" style="border-radius:2px;"><span>{nombre}</span></div>'
-
+    # CSS para forzar tamaño estandarizado 30x20px
+    return f'''
+    <div style="display: flex; align-items: center; flex-direction: {flex}; gap: 10px; min-width: 150px;">
+        <div style="width: 30px; height: 20px; flex-shrink: 0; overflow: hidden; border-radius: 2px; border: 1px solid #eee;">
+            <img src="{url_bandera}" style="width: 100%; height: 100%; object-fit: cover;">
+        </div>
+        <span style="white-space: nowrap; font-weight: 500;">{nombre}</span>
+    </div>
+    '''
 # --- 2. LÓGICA DE CÁLCULO MEJORADA (CRITERIOS FIFA) ---
 
 def calcular_posiciones(partidos_lista, goles_sim, fp_sim):
@@ -204,14 +215,59 @@ if st.session_state.connected:
     # --- 2. JUGAR (CON TIEMPO LÍMITE) ---
     elif menu == t["nav_play"]:
         st.subheader(t["nav_play"])
-        email_user = "usuario_prueba@gmail.com"
-        preds = obtener_predicciones_usuario(email_user)
-        orden_j = ["Jornada 1", "Jornada 2", "Jornada 3", "16vos de final", "8vos de final", "4tos de final", "Semifinal", "3er puesto", "Final"]
-        jornadas = sorted(list(set([p['Jornada'] for p in partidos_data if p['Jornada']])), key=lambda x: orden_j.index(x) if x in orden_j else 99)
-        j_sel = st.selectbox("Jornada:", jornadas)
+        email_user = "usuario_prueba@gmail.com" # Aquí luego irá el email real de Google
         
+        # 1. Definición de Control de Jornadas (Sofia GMT+3)
         zona_sofia = ZoneInfo("Europe/Sofia")
         ahora = datetime.now(zona_sofia)
+        
+        controles = {
+            "🏆 Apuestas Especiales": {
+                "abre": datetime(2024, 1, 1, tzinfo=zona_sofia), # Siempre abierta
+                "cierra": datetime(2026, 6, 11, 17, 0, tzinfo=zona_sofia),
+                "msg_antes": ""
+            },
+            "Jornada 1": {
+                "abre": datetime(2024, 1, 1, tzinfo=zona_sofia),
+                "cierra": datetime(2026, 6, 11, 17, 0, tzinfo=zona_sofia),
+                "msg_antes": ""
+            },
+            "Jornada 2": {
+                "abre": datetime(2024, 1, 1, tzinfo=zona_sofia),
+                "cierra": datetime(2026, 6, 18, 14, 0, tzinfo=zona_sofia),
+                "msg_antes": ""
+            },
+            "Jornada 3": {
+                "abre": datetime(2024, 1, 1, tzinfo=zona_sofia),
+                "cierra": datetime(2026, 6, 24, 17, 0, tzinfo=zona_sofia),
+                "msg_antes": ""
+            },
+            "16vos de final": {
+                "abre": datetime(2026, 6, 28, 8, 0, tzinfo=zona_sofia),
+                "cierra": datetime(2026, 6, 28, 17, 0, tzinfo=zona_sofia),
+                "msg_antes": "Los equipos se están definiendo tras la Fecha 3. Vuelve el 28/6/2026 a las 08:00 hs para apostar."
+            }
+            # ... Agregar las demás según tus horarios
+        }
+
+        jornadas_disponibles = ["🏆 Apuestas Especiales"] + sorted(list(set([p['Jornada'] for p in partidos_data if p['Jornada']])), key=lambda x: orden_j.index(x) if x in orden_j else 99)
+        j_sel = st.selectbox("Selecciona tu Apuesta:", jornadas_disponibles)
+        
+        info_j = controles.get(j_sel, {"abre": ahora, "cierra": ahora + timedelta(days=1), "msg_antes": ""})
+        
+        if ahora < info_j["abre"]:
+            st.warning(info_j["msg_antes"])
+        else:
+            bloqueado = ahora > info_j["cierra"]
+            if bloqueado:
+                st.error("🔒 El tiempo para esta apuesta ha finalizado.")
+            
+            # Si es Especiales, mostramos selectores, si no, el formulario de partidos
+            if j_sel == "🏆 Apuestas Especiales":
+                # Lógica de Campeón, Sorpresa, Decepción aquí...
+                pass 
+            else:
+                # Aquí sigue tu 'with st.form("f_prode")' corregido
 
         with st.form("f_prode"):
             partidos_j = sorted([p for p in partidos_data if p['Jornada'] == j_sel], key=lambda x: x['ID'])
