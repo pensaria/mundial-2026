@@ -102,17 +102,16 @@ def obtener_ranking_global(partidos):
 def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
     nombre = nombre_es if lang_choice == "Español" else (nombre_en or nombre_es)
     if not nombre: nombre = "TBD"
-    # Bandera por defecto si no hay url
     if not url_bandera: url_bandera = "https://flagcdn.com/w80/un.png"
     
     flex = "row" if align == "left" else "row-reverse"
-    # CSS para forzar tamaño estandarizado 30x20px
+    # Aumentamos el gap y quitamos el min-width restrictivo
     return f'''
-    <div style="display: flex; align-items: center; flex-direction: {flex}; gap: 10px; min-width: 150px;">
-        <div style="width: 30px; height: 20px; flex-shrink: 0; overflow: hidden; border-radius: 2px; border: 1px solid #eee;">
+    <div style="display: flex; align-items: center; flex-direction: {flex}; gap: 12px; width: 100%;">
+        <div style="width: 35px; height: 23px; flex-shrink: 0; overflow: hidden; border-radius: 3px; border: 1px solid #ddd;">
             <img src="{url_bandera}" style="width: 100%; height: 100%; object-fit: cover;">
         </div>
-        <span style="white-space: nowrap; font-weight: 500;">{nombre}</span>
+        <span style="white-space: nowrap; font-weight: 500; font-size: 15px;">{nombre}</span>
     </div>
     '''
 # --- 2. LÓGICA DE CÁLCULO MEJORADA (CRITERIOS FIFA) ---
@@ -215,11 +214,21 @@ if st.session_state.connected:
     # --- 2. JUGAR (CON TIEMPO LÍMITE) ---
     elif menu == t["nav_play"]:
         st.subheader(t["nav_play"])
-        email_user = "usuario_prueba@gmail.com" # Cambiar por el email real del login
         
+        # OBTENER USER ID DE SUPABASE (Crucial para el error de guardado)
+        # Asumimos que el usuario está conectado. Intentamos sacar su UUID.
+        user_id = None
+        try:
+            user_auth = supabase.auth.get_user()
+            user_id = user_auth.user.id
+        except:
+            st.error("Error de sesión. Por favor, vuelve a iniciar sesión con Google.")
+            st.stop()
+
         zona_sofia = ZoneInfo("Europe/Sofia")
         ahora = datetime.now(zona_sofia)
         
+        # 1. Diccionario Maestro de Tiempos y Mensajes
         controles = {
             "🏆 Apuestas Especiales": {
                 "abre": datetime(2024, 1, 1, tzinfo=zona_sofia),
@@ -231,58 +240,78 @@ if st.session_state.connected:
                 "cierra": datetime(2026, 6, 11, 17, 0, tzinfo=zona_sofia),
                 "msg_antes": ""
             },
-            "Jornada 2": {
-                "abre": datetime(2024, 1, 1, tzinfo=zona_sofia),
-                "cierra": datetime(2026, 6, 18, 14, 0, tzinfo=zona_sofia),
-                "msg_antes": ""
-            },
-            "Jornada 3": {
-                "abre": datetime(2024, 1, 1, tzinfo=zona_sofia),
-                "cierra": datetime(2026, 6, 24, 17, 0, tzinfo=zona_sofia),
-                "msg_antes": ""
-            },
+            "Jornada 2": {"abre": datetime(2024, 1, 1, tzinfo=zona_sofia), "cierra": datetime(2026, 6, 18, 14, 0, tzinfo=zona_sofia), "msg_antes": ""},
+            "Jornada 3": {"abre": datetime(2024, 1, 1, tzinfo=zona_sofia), "cierra": datetime(2026, 6, 24, 17, 0, tzinfo=zona_sofia), "msg_antes": ""},
             "16vos de final": {
                 "abre": datetime(2026, 6, 28, 8, 0, tzinfo=zona_sofia),
                 "cierra": datetime(2026, 6, 28, 17, 0, tzinfo=zona_sofia),
-                "msg_antes": "Los equipos se están definiendo tras la Fecha 3. Vuelve el 28/6/2026 a las 08:00 hs para apostar."
+                "msg_antes": "Los equipos se definirán tras la finalización de la Fecha 3. ¡Vuelve el 28/6/2026 a las 8:00 hs!"
+            },
+            "8vos de final": {
+                "abre": datetime(2026, 7, 4, 8, 0, tzinfo=zona_sofia),
+                "cierra": datetime(2026, 7, 4, 15, 0, tzinfo=zona_sofia),
+                "msg_antes": "Los equipos se definirán tras la finalización de los 16vos. ¡Vuelve el 04/7/2026 a las 8:00 hs!"
+            },
+            "4tos de final": {
+                "abre": datetime(2026, 7, 9, 2, 0, tzinfo=zona_sofia),
+                "cierra": datetime(2026, 7, 9, 18, 0, tzinfo=zona_sofia),
+                "msg_antes": "Los equipos se definirán tras los 8vos. ¡Vuelve el 08/7/2026 a las 2:00 hs!"
+            },
+            "Semifinal": {
+                "abre": datetime(2026, 7, 14, 7, 0, tzinfo=zona_sofia),
+                "cierra": datetime(2026, 7, 14, 17, 0, tzinfo=zona_sofia),
+                "msg_antes": "Los equipos se definirán tras los 4tos. ¡Vuelve el 12/7/2026 a las 7:00 hs!"
+            },
+            "3er puesto y Final": {
+                "abre": datetime(2026, 7, 16, 1, 0, tzinfo=zona_sofia),
+                "cierra": datetime(2026, 7, 19, 19, 0, tzinfo=zona_sofia),
+                "msg_antes": "Los equipos se definirán tras las Semis. ¡Vuelve el 16/7/2026 a las 1:00 hs!"
             }
         }
 
-        orden_j = ["Jornada 1", "Jornada 2", "Jornada 3", "16vos de final", "8vos de final", "4tos de final", "Semifinal", "3er puesto", "Final"]
-        jornadas_db = sorted(list(set([p['Jornada'] for p in partidos_data if p['Jornada']])), key=lambda x: orden_j.index(x) if x in orden_j else 99)
-        jornadas_disponibles = ["🏆 Apuestas Especiales"] + jornadas_db
+        # 2. Arreglar el orden del selector (Punto 2)
+        orden_maestro = ["🏆 Apuestas Especiales", "Jornada 1", "Jornada 2", "Jornada 3", 
+                         "16vos de final", "8vos de final", "4tos de final", "Semifinal", "3er puesto y Final"]
         
-        j_sel = st.selectbox("Selecciona tu Apuesta:", jornadas_disponibles)
-        info_j = controles.get(j_sel, {"abre": ahora, "cierra": ahora + timedelta(days=365), "msg_antes": ""})
+        jornadas_existentes = list(set([p['Jornada'] for p in partidos_data if p['Jornada']]))
+        opciones = [f for f in orden_maestro if f in jornadas_existentes or f == "🏆 Apuestas Especiales"]
         
-        if ahora < info_j["abre"]:
-            st.warning(info_j["msg_antes"])
-        else:
-            bloqueado = ahora > info_j["cierra"]
-            if bloqueado:
-                st.error("🔒 El tiempo para esta apuesta ha finalizado.")
+        j_sel = st.selectbox("Selecciona tu Apuesta:", opciones)
             
             if j_sel == "🏆 Apuestas Especiales":
-                st.info("Selecciona tus candidatos. Esta apuesta se bloquea junto con la Fecha 1.")
-                equipos_list = sorted(list(set([p['Local_ES'] for p in partidos_data if p['Local_ES']])))
-                equipos_sorpresa = sorted(list(set([p['Local_ES'] for p in partidos_data if p['Rank_L'] > 10 and p['Local_ES']])))
-                equipos_decepcion = sorted(list(set([p['Local_ES'] for p in partidos_data if p['Rank_L'] <= 10 and p['Local_ES']])))
+                st.info("Selecciona tus candidatos. Límite: 11/Jun 17:00 hs.")
+                
+                # Lista base de equipos con ranking
+                equipos_db = []
+                for p in partidos_data:
+                    if p['Local_ES'] and p['Local_ES'] not in [e['n'] for e in equipos_db]:
+                        equipos_db.append({'n': p['Local_ES'], 'r': p['Rank_L'], 'b': p['Bandera_L']})
+                
+                nombres_todos = sorted([e['n'] for e in equipos_db])
+                
+                # Filtros Sorpresa/Decepción (Punto 3)
+                opciones_sorpresa = sorted([e['n'] for e in equipos_db if int(e['r']) > 10])
+                opciones_decepcion = sorted([e['n'] for e in equipos_db if int(e['r']) <= 10])
 
                 with st.form("f_especiales"):
                     c1, c2 = st.columns(2)
-                    campeon = c1.selectbox("Campeón", equipos_list)
-                    subcampeon = c2.selectbox("Subcampeón (2do)", equipos_list)
-                    c3, c4, c5 = st.columns(3)
-                    tercero = c3.selectbox("Tercer Puesto", equipos_list)
-                    sorpresa = c4.selectbox("Equipo Sorpresa (Ranking > 10)", equipos_sorpresa)
-                    decepcion = c5.selectbox("Equipo Decepción (Ranking <= 10)", equipos_decepcion)
+                    campeon = c1.selectbox("Campeón", nombres_todos)
+                    subcampeon = c2.selectbox("Subcampeón", [e for e in nombres_todos if e != campeon])
                     
-                    if st.form_submit_button("Guardar Apuestas Especiales", disabled=bloqueado):
-                        supabase.table("perfiles").upsert({
-                            "id": email_user, "equipo_campeon": campeon, "equipo_subcampeon": subcampeon,
+                    c3, c4, c5 = st.columns(3)
+                    tercero = c3.selectbox("3er Puesto", [e for e in nombres_todos if e not in [campeon, subcampeon]])
+                    sorpresa = c4.selectbox("Equipo Sorpresa (Rank > 10)", opciones_sorpresa)
+                    decepcion = c5.selectbox("Equipo Decepción (Rank <= 10)", opciones_decepcion)
+                    
+                    if st.form_submit_button("Guardar Especiales", disabled=bloqueado):
+                        # USAMOS EL UUID REAL PARA EVITAR EL APIError
+                        res = supabase.table("perfiles").upsert({
+                            "id": user_id, 
+                            "email": user_auth.user.email,
+                            "equipo_campeon": campeon, "equipo_subcampeon": subcampeon,
                             "equipo_tercero": tercero, "equipo_sorpresa": sorpresa, "equipo_decepcion": decepcion
                         }).execute()
-                        st.success("¡Apuestas especiales guardadas!")
+                        st.success("¡Apuestas guardadas correctamente!")
             else:
                 # PRODE NORMAL
                 preds = obtener_predicciones_usuario(email_user)
