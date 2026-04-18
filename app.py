@@ -63,12 +63,10 @@ def obtener_datos_base():
     for record in r_partidos.get('records', []):
         f = record['fields']
         
-        # Función auxiliar para manejar campos de búsqueda (lookups)
         def get_val(campo, es_lista=True):
             val = f.get(campo)
             return val[0] if es_lista and isinstance(val, list) and val else (val if val is not None else None)
 
-        # Extraemos nombres para buscar en nuestro diccionario de equipos
         loc_es = get_val("Nombre (from Equipo Local)")
         vis_es = get_val("Nombre (from Equipo Visitante)")
 
@@ -76,14 +74,13 @@ def obtener_datos_base():
             "ID": f.get("ID Partido"),
             "Grupo": get_val("Grupo"),
             "Jornada": f.get("Jornada"),
-            "Jornada_EN": f.get("Jornada EN"), # Nueva columna
+            "Jornada_EN": f.get("Jornada EN"),
             "Local_ES": loc_es,
             "Local_EN": get_val("Nombre EN (from Equipo Local)"),
             "Visitante_ES": vis_es,
             "Visitante_EN": get_val("Nombre EN (from Equipo Visitante)"),
             "Bandera_L": get_val("Bandera L"),
             "Bandera_V": get_val("Bandera V"),
-            # Si el equipo existe en el diccionario, usamos su ranking real
             "Rank_L": equipos_dict.get(loc_es, {}).get("ranking", 100) if loc_es else 100,
             "Rank_V": equipos_dict.get(vis_es, {}).get("ranking", 100) if vis_es else 100,
             "Goles Real L": f.get("Goles Local"),
@@ -126,7 +123,6 @@ def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
     if not url_bandera: url_bandera = "https://flagcdn.com/w80/un.png"
     
     flex = "row" if align == "left" else "row-reverse"
-    # Aumentamos el gap y quitamos el min-width restrictivo
     return f'''
     <div style="display: flex; align-items: center; flex-direction: {flex}; gap: 12px; width: 100%;">
         <div style="width: 35px; height: 23px; flex-shrink: 0; overflow: hidden; border-radius: 3px; border: 1px solid #ddd;">
@@ -135,13 +131,11 @@ def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
         <span style="white-space: nowrap; font-weight: 500; font-size: 15px;">{nombre}</span>
     </div>
     '''
-# --- 2. LÓGICA DE CÁLCULO MEJORADA (CRITERIOS FIFA) ---
 
 def calcular_posiciones(partidos_lista, goles_sim, fp_sim):
     stats = {}
     for p in partidos_lista:
         pid = str(p['ID'])
-        # Obtenemos goles de la simulación o de la realidad si no hay simulación
         gl = goles_sim.get(f"sl_{pid}", 0)
         gv = goles_sim.get(f"sv_{pid}", 0)
         
@@ -151,20 +145,16 @@ def calcular_posiciones(partidos_lista, goles_sim, fp_sim):
         ]:
             if not eq: continue
             if eq not in stats:
-                # El FP total es: Base de Airtable + Lo que el usuario sume/reste en el simulador
-                stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP_Base': fp_base}
+                stats[eq] = {'Flag': bnd if bnd else "https://flagcdn.com/w80/un.png", 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP_Base': fp_base}
             
             stats[eq]['GF'] += gf
             stats[eq]['DG'] += (gf - gc)
             if gf > gc: stats[eq]['PTS'] += 3
             elif gf == gc: stats[eq]['PTS'] += 1
 
-    # Crear DataFrame y calcular FP Final
     df = pd.DataFrame(stats.values())
     if not df.empty:
-        # Sumamos el ajuste manual del simulador al valor base
         df['FP'] = df.apply(lambda x: x['FP_Base'] + fp_sim.get(x['Equipo'], 0), axis=1)
-        # ORDEN FIFA: 1. Puntos, 2. DG, 3. Goles Favor, 4. Fair Play, 5. Ranking FIFA
         df = df.sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
     return df
 
@@ -176,28 +166,21 @@ if st.session_state.connected:
     lang = st.sidebar.selectbox("🌐 Language", ["Español", "English"])
     t = texts[lang]
     
-    # --- REPARACIÓN DE DATOS ---
     datos_completos = obtener_datos_base()
-    partidos_data = datos_completos["partidos"] # Esto devuelve la lista que Home, Resultados y Simulador necesitan
-    equipos_data = datos_completos["equipos"]   # Esto es el nuevo diccionario para las Especiales
-    # ---------------------------
+    partidos_data = datos_completos["partidos"]
+    equipos_data = datos_completos["equipos"]
 
     menu = st.sidebar.radio("Menu", [t["nav_home"], t["nav_play"], t["nav_results"], t["nav_sim"], t["nav_stadiums"]])    
     if st.sidebar.button(t["logout"]): st.session_state.connected = False; st.rerun()
 
     st.title(t["title"])
 
-    # --- 1. INICIO ---
     if menu == t["nav_home"]:
-        # A2.b.1: Selector de Modo
         modo_juego = st.sidebar.radio("🎮 Modo de Juego", ["Prode Simple", "Magic Mister"])
-        
         if modo_juego == "Prode Simple":
             col_rank, col_next = st.columns([1, 1.2], gap="large")
-            
             with col_rank:
                 st.subheader(t["ranking_title"])
-                # A2.b.3: Ranking (Calculado comparando Supabase vs Airtable Real)
                 ranking = obtener_ranking_global(partidos_data)
                 if ranking:
                     st.table(pd.DataFrame(ranking))
@@ -208,11 +191,8 @@ if st.session_state.connected:
                 st.subheader(t["next_matches"])
                 zona_sofia = ZoneInfo("Europe/Sofia")
                 ahora = datetime.now(zona_sofia)
-                
-                # Filtramos: que tengan fecha, que sean futuros y que ya tengan equipos definidos
                 proximos = []
                 for p in partidos_data:
-                    # Validamos que Local_ES no sea None para evitar partidos TBD de eliminación
                     if p.get('Fecha_Hora') and p.get('Local_ES'): 
                         try:
                             f_dt = datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia)
@@ -220,10 +200,7 @@ if st.session_state.connected:
                                 proximos.append((f_dt, p))
                         except:
                             continue
-                
-                # Ordenamos cronológicamente por la fecha real
                 proximos.sort(key=lambda x: x[0])
-                
                 if proximos:
                     for f_dt, p in proximos[:5]:
                         with st.container(border=True):
@@ -235,269 +212,141 @@ if st.session_state.connected:
                 else:
                     st.success(t["no_matches"])
         else:
-            st.warning("🚀 **Magic Mister** estará disponible próximamente. ¡Prepara tu equipo de 11!")
+            st.warning("🚀 **Magic Mister** estará disponible próximamente.")
 
-    # --- 2. JUGAR (CON TIEMPO LÍMITE) ---
     elif menu == t["nav_play"]:
         st.subheader(t["nav_play"])
-        
-        # OBTENER USER ID DE SUPABASE (Crucial para el error de guardado)
-        user_id = None
-        user_email = "usuario_prueba@gmail.com"
+        user_id, user_email = None, "usuario_prueba@gmail.com"
         try:
-            # Intentamos obtener la sesión activa de Supabase
             user_auth = supabase.auth.get_user()
             if user_auth and user_auth.user:
                 user_id = user_auth.user.id
                 user_email = user_auth.user.email
-        except:
-            pass
+        except: pass
 
         zona_sofia = ZoneInfo("Europe/Sofia")
         ahora = datetime.now(zona_sofia)
         
-        # 1. Diccionario Maestro de Tiempos y Mensajes
         controles = {
-            "🏆 Apuestas Especiales": {
-                "abre": datetime(2024, 1, 1, tzinfo=zona_sofia),
-                "cierra": datetime(2026, 6, 11, 17, 0, tzinfo=zona_sofia),
-                "msg_antes": ""
-            },
-            "Jornada 1": {
-                "abre": datetime(2024, 1, 1, tzinfo=zona_sofia),
-                "cierra": datetime(2026, 6, 11, 17, 0, tzinfo=zona_sofia),
-                "msg_antes": ""
-            },
-            "Jornada 2": {"abre": datetime(2024, 1, 1, tzinfo=zona_sofia), "cierra": datetime(2026, 6, 18, 14, 0, tzinfo=zona_sofia), "msg_antes": ""},
-            "Jornada 3": {"abre": datetime(2024, 1, 1, tzinfo=zona_sofia), "cierra": datetime(2026, 6, 24, 17, 0, tzinfo=zona_sofia), "msg_antes": ""},
-            "16vos de final": {
-                "abre": datetime(2026, 6, 28, 8, 0, tzinfo=zona_sofia),
-                "cierra": datetime(2026, 6, 28, 17, 0, tzinfo=zona_sofia),
-                "msg_antes": "Los equipos se definirán tras la finalización de la Fecha 3. ¡Vuelve el 28/6/2026 a las 8:00 hs!"
-            },
-            "8vos de final": {
-                "abre": datetime(2026, 7, 4, 8, 0, tzinfo=zona_sofia),
-                "cierra": datetime(2026, 7, 4, 15, 0, tzinfo=zona_sofia),
-                "msg_antes": "Los equipos se definirán tras la finalización de los 16vos. ¡Vuelve el 04/7/2026 a las 8:00 hs!"
-            },
-            "4tos de final": {
-                "abre": datetime(2026, 7, 9, 2, 0, tzinfo=zona_sofia),
-                "cierra": datetime(2026, 7, 9, 18, 0, tzinfo=zona_sofia),
-                "msg_antes": "Los equipos se definirán tras los 8vos. ¡Vuelve el 08/7/2026 a las 2:00 hs!"
-            },
-            "Semifinal": {
-                "abre": datetime(2026, 7, 14, 7, 0, tzinfo=zona_sofia),
-                "cierra": datetime(2026, 7, 14, 17, 0, tzinfo=zona_sofia),
-                "msg_antes": "Los equipos se definirán tras los 4tos. ¡Vuelve el 12/7/2026 a las 7:00 hs!"
-            },
-            "3er puesto y Final": {
-                "abre": datetime(2026, 7, 16, 1, 0, tzinfo=zona_sofia),
-                "cierra": datetime(2026, 7, 19, 19, 0, tzinfo=zona_sofia),
-                "msg_antes": "Los equipos se definirán tras las Semis. ¡Vuelve el 16/7/2026 a las 1:00 hs!"
-            }
+            "🏆 Apuestas Especiales": {"abre": datetime(2024, 1, 1, tzinfo=zona_sofia), "cierra": datetime(2026, 6, 11, 17, 0, tzinfo=zona_sofia), "msg_antes": ""},
+            "Fecha 1": {"abre": datetime(2024, 1, 1, tzinfo=zona_sofia), "cierra": datetime(2026, 6, 11, 17, 0, tzinfo=zona_sofia), "msg_antes": ""},
+            "Fecha 2": {"abre": datetime(2024, 1, 1, tzinfo=zona_sofia), "cierra": datetime(2026, 6, 18, 14, 0, tzinfo=zona_sofia), "msg_antes": ""},
+            "Fecha 3": {"abre": datetime(2024, 1, 1, tzinfo=zona_sofia), "cierra": datetime(2026, 6, 24, 17, 0, tzinfo=zona_sofia), "msg_antes": ""},
+            "16vos de final": {"abre": datetime(2026, 6, 28, 8, 0, tzinfo=zona_sofia), "cierra": datetime(2026, 6, 28, 17, 0, tzinfo=zona_sofia), "msg_antes": "Los equipos se definirán tras la finalización de la Fecha 3. ¡Vuelve el 28/6/2026 a las 8:00 hs!"},
+            "8vos de final": {"abre": datetime(2026, 7, 4, 8, 0, tzinfo=zona_sofia), "cierra": datetime(2026, 7, 4, 15, 0, tzinfo=zona_sofia), "msg_antes": "Los equipos se definirán tras los 16vos. ¡Vuelve el 04/7/2026 a las 8:00 hs!"},
+            "4tos de final": {"abre": datetime(2026, 7, 9, 2, 0, tzinfo=zona_sofia), "cierra": datetime(2026, 7, 9, 18, 0, tzinfo=zona_sofia), "msg_antes": "Los equipos se definirán tras los 8vos. ¡Vuelve el 08/7/2026 a las 2:00 hs!"},
+            "Semifinales": {"abre": datetime(2026, 7, 14, 7, 0, tzinfo=zona_sofia), "cierra": datetime(2026, 7, 14, 17, 0, tzinfo=zona_sofia), "msg_antes": "Los equipos se definirán tras los 4tos. ¡Vuelve el 12/7/2026 a las 7:00 hs!"},
+            "Final y 3er puesto": {"abre": datetime(2026, 7, 16, 1, 0, tzinfo=zona_sofia), "cierra": datetime(2026, 7, 19, 19, 0, tzinfo=zona_sofia), "msg_antes": "Los equipos se definirán tras las Semis. ¡Vuelve el 16/7/2026 a las 1:00 hs!"}
         }
 
-        # 1. Definición de Jornadas y Orden Maestro
-        jornadas_db = list(set([p['Jornada'] for p in partidos_data if p['Jornada']]))
-        orden_maestro = ["🏆 Apuestas Especiales", "Jornada 1", "Jornada 2", "Jornada 3", 
-                         "16vos de final", "8vos de final", "4tos de final", "Semifinal", "3er puesto y Final"]
+        orden_maestro = ["🏆 Apuestas Especiales", "Fecha 1", "Fecha 2", "Fecha 3", "16vos de final", "8vos de final", "4tos de final", "Semifinales", "Final y 3er puesto"]
         
-        # Filtramos las opciones para mostrar solo las que existen en DB + Especiales, respetando el orden
-        opciones = ["🏆 Apuestas Especiales"] + [j for j in orden_maestro[1:] if j in jornadas_db]
+        # Diccionario para traducción inversa si el usuario elige Inglés
+        mapeo_en = {"Matchday 1": "Fecha 1", "Matchday 2": "Fecha 2", "Matchday 3": "Fecha 3", "Round of 32": "16vos de final", "Round of 16": "8vos de final", "Quarter-finals": "4tos de final", "Semi-finals": "Semifinales", "Final & 3rd place": "Final y 3er puesto"}
         
-        j_sel = st.selectbox("Selecciona tu Apuesta:", opciones)
+        if lang == "English":
+            opciones_ver = ["🏆 Special Bets", "Matchday 1", "Matchday 2", "Matchday 3", "Round of 32", "Round of 16", "Quarter-finals", "Semi-finals", "Final & 3rd place"]
+        else:
+            opciones_ver = orden_maestro
+            
+        j_sel_ver = st.selectbox("Selecciona tu Apuesta / Select Bet:", opciones_ver)
+        j_sel = mapeo_en.get(j_sel_ver, j_sel_ver) if lang == "English" else j_sel_ver
+        if j_sel == "🏆 Special Bets": j_sel = "🏆 Apuestas Especiales"
+
         info_j = controles.get(j_sel, {"abre": ahora, "cierra": ahora + timedelta(days=365), "msg_antes": ""})
         
-        # 2. Validación de Apertura (Si no abrió, mensaje y stop)
         if ahora < info_j["abre"]:
-            st.warning(info_j["msg_antes"])
-            st.stop()
+            st.warning(info_j["msg_antes"]); st.stop()
         
         bloqueado = ahora > info_j["cierra"]
-        if bloqueado:
-            st.error("🔒 El tiempo para esta apuesta ha finalizado.")
+        if bloqueado: st.error("🔒 Cerrado / Closed")
         
-        # 3. Bloque específico de Apuestas Especiales (Si entra aquí, hace stop al final)
         if j_sel == "🏆 Apuestas Especiales":
-            st.info("Selecciona tus candidatos. Límite: 11/Jun 17:00 hs.")
-            
-            # Recopilamos todos los equipos y sus rankings de las dos columnas de Airtable
-            equipos_stats = {}
-            for p in partidos_data:
-                if p['Local_ES'] and p['Local_ES'] not in equipos_stats:
-                    equipos_stats[p['Local_ES']] = int(p.get('Rank_L', 100))
-                if p['Visitante_ES'] and p['Visitante_ES'] not in equipos_stats:
-                    equipos_stats[p['Visitante_ES']] = int(p.get('Rank_V', 100))
-            
-            nombres_todos = sorted(list(equipos_stats.keys()))
-            op_sorpresa = sorted([n for n, r in equipos_stats.items() if r > 10])
-            op_decepcion = sorted([n for n, r in equipos_stats.items() if r <= 10])
+            st.info("⚡ Predicciones Finales / Final Predictions")
+            nombres_todos = sorted(list(equipos_data.keys()))
+            op_sorpresa = sorted([n for n, d in equipos_data.items() if d['ranking'] > 10])
+            op_decepcion = sorted([n for n, d in equipos_data.items() if d['ranking'] <= 10])
 
             with st.form("f_especiales"):
                 c1, c2 = st.columns(2)
-                campeon = c1.selectbox("🏆 Campeón", nombres_todos)
-                subcampeon = c2.selectbox("🥈 Subcampeón (2do)", [e for e in nombres_todos if e != campeon])
-                
+                campeon = c1.selectbox("⭐ Campeón", nombres_todos)
+                subcampeon = c2.selectbox("🥈 Subcampeón", [e for e in nombres_todos if e != campeon])
                 c3, c4, c5 = st.columns(3)
-                tercero = c3.selectbox("🥉 Tercer Puesto", [e for e in nombres_todos if e not in [campeon, subcampeon]])
-                sorpresa = c4.selectbox("⭐ Equipo Sorpresa (Rank > 10)", op_sorpresa)
-                decepcion = c5.selectbox("👎 Equipo Decepción (Rank <= 10)", op_decepcion)
+                tercero = c3.selectbox("🥉 3er Puesto", [e for e in nombres_todos if e not in [campeon, subcampeon]])
+                sorpresa = c4.selectbox("⚡ Sorpresa (Rank > 10)", op_sorpresa)
+                decepcion = c5.selectbox("👎 Decepción (Rank <= 10)", op_decepcion)
                 
-                if st.form_submit_button("Guardar Apuestas Especiales", disabled=bloqueado):
+                if st.form_submit_button("Guardar Especiales", disabled=bloqueado):
                     if user_id:
-                        supabase.table("perfiles").upsert({
-                            "id": user_id, "email": user_email,
-                            "equipo_campeon": campeon, "equipo_subcampeon": subcampeon,
-                            "equipo_tercero": tercero, "equipo_sorpresa": sorpresa, "equipo_decepcion": decepcion
-                        }).execute()
-                        st.success("✅ ¡Apuestas guardadas correctamente!")
-                    else:
-                        st.error("❌ No se pudo identificar tu sesión de Google.")
-            st.stop() # Evita que se dibuje el formulario de partidos normales abajo
+                        supabase.table("perfiles").upsert({"id": user_id, "email": user_email, "equipo_campeon": campeon, "equipo_subcampeon": subcampeon, "equipo_tercero": tercero, "equipo_sorpresa": sorpresa, "equipo_decepcion": decepcion}).execute()
+                        st.success("✅ Guardado!"); st.rerun()
+            st.stop()
 
-# PRODE NORMAL
         preds = obtener_predicciones_usuario(user_email)
         with st.form("f_prode"):
-            partidos_j = [p for p in partidos_data if p['Jornada'] == j_sel]
-            partidos_j = sorted(partidos_j, key=lambda x: (x['Grupo'] if x['Grupo'] else "Z", x['ID']))
+            partidos_j = sorted([p for p in partidos_data if p['Jornada'] == j_sel], key=lambda x: (x['Grupo'] if x['Grupo'] else "Z", x['ID']))
             current_group = None
             for p in partidos_j:
                 if p['Grupo'] != current_group and p['Grupo'] is not None and len(str(p['Grupo'])) == 1:
-                    current_group = p['Grupo']
-                    st.markdown(f"#### 🚩 Grupo {current_group}")
+                    current_group = p['Grupo']; st.markdown(f"#### 🚩 Grupo {current_group}")
                 with st.container(border=True):
                     c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
                     with c1: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
-                    v_l = preds.get(str(p['ID']), {}).get('goles_local', 0)
-                    v_v = preds.get(str(p['ID']), {}).get('goles_visitante', 0)
+                    v_l, v_v = preds.get(str(p['ID']), {}).get('goles_local', 0), preds.get(str(p['ID']), {}).get('goles_visitante', 0)
                     gl = c2.number_input("L", 0, 20, v_l, key=f"l_{p['ID']}", label_visibility="collapsed", disabled=bloqueado)
                     c3.markdown("<div style='text-align:center; padding-top:10px;'>:</div>", unsafe_allow_html=True)
                     gv = c4.number_input("V", 0, 20, v_v, key=f"v_{p['ID']}", label_visibility="collapsed", disabled=bloqueado)
                     with c5: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
-            
             if st.form_submit_button(t["save_btn"], use_container_width=True, disabled=bloqueado):
-                for p in partidos_j:
-                    guardar_prediccion_supabase(user_email, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
+                for p in partidos_j: guardar_prediccion_supabase(user_email, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
                 st.success("¡Guardado!"); st.rerun()
-                
-    # --- 3. RESULTADOS ---
+
     elif menu == t["nav_results"]:
         st.subheader(t["nav_results"])
         g_real = {f"sl_{p['ID']}": p['Goles Real L'] if p['Goles Real L'] is not None else 0 for p in partidos_data}
         g_real.update({f"sv_{p['ID']}": p['Goles Real V'] if p['Goles Real V'] is not None else 0 for p in partidos_data})
         df_res = calcular_posiciones(partidos_data, g_real, {})
-        grupos = sorted([g for g in df_res['Grupo'].unique() if len(g)==1])
-        for g in grupos:
+        for g in sorted([g for g in df_res['Grupo'].unique() if len(str(g))==1]):
             st.write(f"### GRUPO {g}")
             st.dataframe(df_res[df_res['Grupo'] == g][['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP']], column_config={"Flag": st.column_config.ImageColumn("")}, hide_index=True, use_container_width=True)
 
-    # --- 4. SIMULADOR (CON CONTROLES DE FP RESTAURADOS) ---
     elif menu == t["nav_sim"]:
         st.subheader(t["nav_sim"])
-        
-        # Inicialización de estados
         if "sim_goles" not in st.session_state: st.session_state.sim_goles = {}
         if "sim_fp" not in st.session_state: st.session_state.sim_fp = {}
-
-        # Botonera de Control
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            if st.button("♻️ Reiniciar Todo", use_container_width=True):
-                st.session_state.sim_goles = {}
-                st.session_state.sim_fp = {}
-                # Limpiamos los widgets físicamente
-                for key in list(st.session_state.keys()):
-                    if key.startswith("fp_in_") or key.startswith("in_l_") or key.startswith("in_v_"):
-                        del st.session_state[key]
-                st.rerun()
-        with c2:
-            if st.button("🏟️ Cargar Realidad", use_container_width=True):
-                for p in partidos_data:
-                    st.session_state.sim_goles[f"sl_{p['ID']}"] = p['Goles Real L'] or 0
-                    st.session_state.sim_goles[f"sv_{p['ID']}"] = p['Goles Real V'] or 0
-                st.rerun()
-        with c3:
-            if st.button("🧹 Borrar solo Sim", use_container_width=True):
-                for p in partidos_data:
-                    if p['Goles Real L'] is None:
-                        st.session_state.sim_goles[f"sl_{p['ID']}"] = 0
-                        st.session_state.sim_goles[f"sv_{p['ID']}"] = 0
-                st.rerun()
-        with c4:
-            if st.button("💾 Guardar Simulación", use_container_width=True):
-                st.success("Guardado localmente")
         
-        grupos_lista = sorted(list(set([p['Grupo'] for p in partidos_data if p['Grupo'] and len(p['Grupo'])==1])))
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: 
+            if st.button("♻️ Reiniciar Todo"): st.session_state.sim_goles = {}; st.session_state.sim_fp = {}; st.rerun()
+        
+        grupos_lista = sorted(list(set([p['Grupo'] for p in partidos_data if p['Grupo'] and len(str(p['Grupo']))==1])))
         g_sel = st.radio("Enfocar Grupo:", grupos_lista, horizontal=True)
-
-        # Calculamos posiciones globales
         df_global = calcular_posiciones(partidos_data, st.session_state.sim_goles, st.session_state.sim_fp)
         
         col_input, col_table = st.columns([1.2, 1])
-
         with col_input:
             st.markdown(f"### ⚽ Partidos Grupo {g_sel}")
             for p in [p for p in partidos_data if p['Grupo'] == g_sel]:
                 with st.container(border=True):
                     ca, cb, cc, cd, ce = st.columns([3, 1, 0.5, 1, 3])
                     with ca: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
-                    
-                    # Inputs de goles
                     st.session_state.sim_goles[f"sl_{p['ID']}"] = cb.number_input("L", 0, 20, st.session_state.sim_goles.get(f"sl_{p['ID']}", 0), key=f"in_l_{p['ID']}")
-                    cc.write(":")
                     st.session_state.sim_goles[f"sv_{p['ID']}"] = cd.number_input("V", 0, 20, st.session_state.sim_goles.get(f"sv_{p['ID']}", 0), key=f"in_v_{p['ID']}")
-                    
                     with ce: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
             
-            # --- SECCIÓN DE FAIR PLAY RESTAURADA ---
-            st.write("🚩 **Ajuste de Fair Play (Tarjetas)**")
+            st.write("🚩 **Fair Play**")
             equipos_fijos = sorted(df_global[df_global['Grupo'] == g_sel]['Equipo'].tolist())
             cols_fp = st.columns(4)
             for i, eq_name in enumerate(equipos_fijos):
                 with cols_fp[i % 4]:
                     row = df_global[df_global['Equipo'] == eq_name]
                     if not row.empty:
-                        st.image(row['Flag'].values[0], width=20)
-                        # Restauramos el input de Fair Play permanente
-                        st.session_state.sim_fp[eq_name] = st.number_input(
-                            f"{eq_name}", -50, 50, 
-                            st.session_state.sim_fp.get(eq_name, 0), 
-                            key=f"fp_in_{eq_name}"
-                        )
+                        st.image(row['Flag'].values[0], width=30)
+                        st.session_state.sim_fp[eq_name] = st.number_input(f"{eq_name[:3]}", -50, 50, st.session_state.sim_fp.get(eq_name, 0), key=f"fp_in_{eq_name}")
 
         with col_table:
-            st.markdown(f"### 📊 Posiciones Grupo {g_sel}")
-            st.dataframe(df_global[df_global['Grupo'] == g_sel][['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP']], 
-                         column_config={"Flag": st.column_config.ImageColumn("")}, hide_index=True, use_container_width=True)
-            
-            st.markdown("### 🥉 Ranking Mejores Terceros")
-            terceros = []
-            for g in grupos_lista:
-                df_g = df_global[df_global['Grupo'] == g]
-                if len(df_g) >= 3: terceros.append(df_g.iloc[2])
-            
-            if terceros:
-                df_3 = pd.DataFrame(terceros).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True]).reset_index(drop=True)
-                def style_3(s): return ['background-color: #2ecc7133' if s.name < 8 else '' for _ in s]
-                st.dataframe(df_3[['Flag', 'Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'FP']].style.apply(style_3, axis=1), 
-                             column_config={"Flag": st.column_config.ImageColumn("")}, hide_index=True, use_container_width=True)
-
-        # --- SECCIÓN: VER CUADRO COMPLETO ---
-        st.divider()
-        with st.expander("🌍 Ver Cuadro Completo (Todos los Grupos)", expanded=False):
-            filas_grupos = [grupos_lista[i:i + 4] for i in range(0, len(grupos_lista), 4)]
-            for fila in filas_grupos:
-                cols = st.columns(4)
-                for i, g_id in enumerate(fila):
-                    with cols[i]:
-                        st.markdown(f"**Grupo {g_id}**")
-                        df_mini = df_global[df_global['Grupo'] == g_id][['Flag', 'Equipo', 'PTS', 'DG']]
-                        st.dataframe(df_mini, column_config={"Flag": st.column_config.ImageColumn("")}, hide_index=True, use_container_width=True)
-
-        st.divider()
-        st.subheader("🏁 Cuadro de Eliminatorias Simuladas")
-        
-    else: st.info("Próximamente")
+            st.markdown(f"### 📊 Posiciones {g_sel}")
+            st.dataframe(df_global[df_global['Grupo'] == g_sel][['Flag', 'Equipo', 'PTS', 'DG', 'GF', 'FP']], column_config={"Flag": st.column_config.ImageColumn("")}, hide_index=True, use_container_width=True)
 
 else:
     st.title("⚽ World Cup 2026")
