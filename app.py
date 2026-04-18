@@ -175,9 +175,14 @@ if "code" in st.query_params: st.session_state.connected = True
 if st.session_state.connected:
     lang = st.sidebar.selectbox("🌐 Language", ["Español", "English"])
     t = texts[lang]
-    partidos_data = obtener_datos_base()
-    menu = st.sidebar.radio("Menu", [t["nav_home"], t["nav_play"], t["nav_results"], t["nav_sim"], t["nav_stadiums"]])
     
+    # --- REPARACIÓN DE DATOS ---
+    datos_completos = obtener_datos_base()
+    partidos_data = datos_completos["partidos"] # Esto devuelve la lista que Home, Resultados y Simulador necesitan
+    equipos_data = datos_completos["equipos"]   # Esto es el nuevo diccionario para las Especiales
+    # ---------------------------
+
+    menu = st.sidebar.radio("Menu", [t["nav_home"], t["nav_play"], t["nav_results"], t["nav_sim"], t["nav_stadiums"]])    
     if st.sidebar.button(t["logout"]): st.session_state.connected = False; st.rerun()
 
     st.title(t["title"])
