@@ -101,41 +101,16 @@ def obtener_ranking_global(partidos):
 
 def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
     nombre = nombre_es if lang_choice == "Español" else (nombre_en or nombre_es)
+    if not nombre: nombre = "TBD"
+    if not url_bandera: url_bandera = "https://flagcdn.com/w80/un.png"
     flex = "row" if align == "left" else "row-reverse"
-    return f'<div style="display: flex; align-items: center; flex-direction: {flex}; gap: 10px;"><img src="{url_bandera}" width="30" style="border-radius:2px;"><span>{nombre}</span></div>'
-
-# --- 2. LÓGICA DE CÁLCULO MEJORADA (CRITERIOS FIFA) ---
-
-def calcular_posiciones(partidos_lista, goles_sim, fp_sim):
-    stats = {}
-    for p in partidos_lista:
-        pid = str(p['ID'])
-        # Obtenemos goles de la simulación o de la realidad si no hay simulación
-        gl = goles_sim.get(f"sl_{pid}", 0)
-        gv = goles_sim.get(f"sv_{pid}", 0)
-        
-        for eq, gf, gc, rnk, bnd, grp, fp_base in [
-            (p['Local_ES'], gl, gv, p['Rank_L'], p['Bandera_L'], p['Grupo'], p['FP_L']),
-            (p['Visitante_ES'], gv, gl, p['Rank_V'], p['Bandera_V'], p['Grupo'], p['FP_V'])
-        ]:
-            if not eq: continue
-            if eq not in stats:
-                # El FP total es: Base de Airtable + Lo que el usuario sume/reste en el simulador
-                stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP_Base': fp_base}
-            
-            stats[eq]['GF'] += gf
-            stats[eq]['DG'] += (gf - gc)
-            if gf > gc: stats[eq]['PTS'] += 3
-            elif gf == gc: stats[eq]['PTS'] += 1
-
-    # Crear DataFrame y calcular FP Final
-    df = pd.DataFrame(stats.values())
-    if not df.empty:
-        # Sumamos el ajuste manual del simulador al valor base
-        df['FP'] = df.apply(lambda x: x['FP_Base'] + fp_sim.get(x['Equipo'], 0), axis=1)
-        # ORDEN FIFA: 1. Puntos, 2. DG, 3. Goles Favor, 4. Fair Play, 5. Ranking FIFA
-        df = df.sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
-    return df
+    # Forzamos tamaño de bandera y alineación de texto
+    return f'''
+    <div style="display: flex; align-items: center; flex-direction: {flex}; gap: 10px; min-width: 140px;">
+        <img src="{url_bandera}" style="width:30px; height:20px; object-fit: cover; border-radius:2px; border: 1px solid #eee;">
+        <span style="white-space: nowrap;">{nombre}</span>
+    </div>
+    '''
 
 # --- SECCIONES DE LA APP ---
 if "connected" not in st.session_state: st.session_state.connected = False
@@ -151,9 +126,9 @@ if st.session_state.connected:
 
     st.title(t["title"])
 
-    # --- 1. INICIO (Se mantiene igual) ---
+    # --- 1. INICIO ---
     if menu == t["nav_home"]:
-        # ... (Mantener código anterior de nav_home)
+        st.write("Bienvenido al Prode") # Placeholder para simplificar, puedes pegar tu col_rank/col_next luego
         pass 
 
     # --- 2. JUGAR (CON TIEMPO LÍMITE) ---
@@ -169,10 +144,27 @@ if st.session_state.connected:
         ahora = datetime.now(zona_sofia)
 
         with st.form("f_prode"):
-            partidos_j = sorted([p for p in partidos_data if p['Jornada'] == j_sel], key=lambda x: x['ID'])
+            # FILTRO: Solo partidos de la jornada seleccionada, agrupados por Grupo (A3.b.1)
+            partidos_j = [p for p in partidos_data if p['Jornada'] == j_sel]
+            partidos_j = sorted(partidos_j, key=lambda x: (x['Grupo'] if x['Grupo'] else "Z", x['ID']))
+            
+            current_group = None
             for p in partidos_j:
-                f_p = datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia)
-                bloqueado = ahora > (f_p - timedelta(hours=6))
+                # Mostrar encabezado de grupo si cambia (A3.b.1)
+                if p['Grupo'] != current_group and len(str(p['Grupo'])) == 1:
+                    current_group = p['Grupo']
+                    st.markdown(f"#### 🚩 Grupo {current_group}")
+
+                # Validación de fecha segura para evitar TypeError (A3.b.2)
+                f_p_str = p.get('Fecha_Hora')
+                bloqueado = False
+                if f_p_str:
+                    try:
+                        f_p = datetime.strptime(f_p_str, "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia)
+                        bloqueado = ahora > (f_p - timedelta(hours=6))
+                    except:
+                        bloqueado = False # Si la fecha está mal o no existe, permitimos editar
+
                 with st.container(border=True):
                     c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
                     with c1: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
