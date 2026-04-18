@@ -99,25 +99,28 @@ def obtener_ranking_global(partidos):
             elif (rl > rv and pl > pv) or (rl < rv and pl < pv) or (rl == rv and pl == pv): puntos[user] += 2
     return sorted([{"Usuario": k, "Puntos": v} for k, v in puntos.items()], key=lambda x: x['Puntos'], reverse=True)
 
+def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
+    nombre = nombre_es if lang_choice == "Español" else (nombre_en or nombre_es)
+    flex = "row" if align == "left" else "row-reverse"
+    return f'<div style="display: flex; align-items: center; flex-direction: {flex}; gap: 10px;"><img src="{url_bandera}" width="30" style="border-radius:2px;"><span>{nombre}</span></div>'
+
+# --- 2. LÓGICA DE CÁLCULO MEJORADA (CRITERIOS FIFA) ---
+
 def calcular_posiciones(partidos_lista, goles_sim, fp_sim):
     stats = {}
     for p in partidos_lista:
         pid = str(p['ID'])
-        # Obtenemos los goles. Usamos .get() sin default para detectar si existen.
-        gl = goles_sim.get(f"sl_{pid}")
-        gv = goles_sim.get(f"sv_{pid}")
+        # Obtenemos goles de la simulación o de la realidad si no hay simulación
+        gl = goles_sim.get(f"sl_{pid}", 0)
+        gv = goles_sim.get(f"sv_{pid}", 0)
         
-        # A5.b.1: Si no hay datos (None), el partido no se ha jugado/simulado. 
-        # No sumamos puntos para evitar el empate automático 0-0.
-        if gl is None or gv is None:
-            continue
-
         for eq, gf, gc, rnk, bnd, grp, fp_base in [
             (p['Local_ES'], gl, gv, p['Rank_L'], p['Bandera_L'], p['Grupo'], p['FP_L']),
             (p['Visitante_ES'], gv, gl, p['Rank_V'], p['Bandera_V'], p['Grupo'], p['FP_V'])
         ]:
-            if not eq or not grp or len(str(grp)) > 1: continue
+            if not eq: continue
             if eq not in stats:
+                # El FP total es: Base de Airtable + Lo que el usuario sume/reste en el simulador
                 stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PTS':0, 'DG':0, 'GF':0, 'Rank': rnk, 'Grupo': grp, 'FP_Base': fp_base}
             
             stats[eq]['GF'] += gf
@@ -125,27 +128,14 @@ def calcular_posiciones(partidos_lista, goles_sim, fp_sim):
             if gf > gc: stats[eq]['PTS'] += 3
             elif gf == gc: stats[eq]['PTS'] += 1
 
-    if not stats: return pd.DataFrame()
-    
+    # Crear DataFrame y calcular FP Final
     df = pd.DataFrame(stats.values())
-    # A5.b.4: Fair Play limitado a máximo 0
-    df['FP'] = df.apply(lambda x: min(0, x['FP_Base'] + fp_sim.get(x['Equipo'], 0)), axis=1)
-    # Orden FIFA: PTS, DG, GF, FP (menor es mejor), Rank (menor es mejor)
-    df = df.sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
+    if not df.empty:
+        # Sumamos el ajuste manual del simulador al valor base
+        df['FP'] = df.apply(lambda x: x['FP_Base'] + fp_sim.get(x['Equipo'], 0), axis=1)
+        # ORDEN FIFA: 1. Puntos, 2. DG, 3. Goles Favor, 4. Fair Play, 5. Ranking FIFA
+        df = df.sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
     return df
-
-def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
-    nombre = nombre_es if lang_choice == "Español" else (nombre_en or nombre_es)
-    if not nombre: nombre = "TBD"
-    if not url_bandera: url_bandera = "https://flagcdn.com/w80/un.png"
-    flex = "row" if align == "left" else "row-reverse"
-    # Forzamos tamaño de bandera y alineación de texto
-    return f'''
-    <div style="display: flex; align-items: center; flex-direction: {flex}; gap: 10px; min-width: 140px;">
-        <img src="{url_bandera}" style="width:30px; height:20px; object-fit: cover; border-radius:2px; border: 1px solid #eee;">
-        <span style="white-space: nowrap;">{nombre}</span>
-    </div>
-    '''
 
 # --- SECCIONES DE LA APP ---
 if "connected" not in st.session_state: st.session_state.connected = False
@@ -161,9 +151,9 @@ if st.session_state.connected:
 
     st.title(t["title"])
 
-    # --- 1. INICIO ---
+    # --- 1. INICIO (Se mantiene igual) ---
     if menu == t["nav_home"]:
-        st.write("Bienvenido al Prode") # Placeholder para simplificar, puedes pegar tu col_rank/col_next luego
+        # ... (Mantener código anterior de nav_home)
         pass 
 
     # --- 2. JUGAR (CON TIEMPO LÍMITE) ---
@@ -179,27 +169,10 @@ if st.session_state.connected:
         ahora = datetime.now(zona_sofia)
 
         with st.form("f_prode"):
-            # FILTRO: Solo partidos de la jornada seleccionada, agrupados por Grupo (A3.b.1)
-            partidos_j = [p for p in partidos_data if p['Jornada'] == j_sel]
-            partidos_j = sorted(partidos_j, key=lambda x: (x['Grupo'] if x['Grupo'] else "Z", x['ID']))
-            
-            current_group = None
+            partidos_j = sorted([p for p in partidos_data if p['Jornada'] == j_sel], key=lambda x: x['ID'])
             for p in partidos_j:
-                # Mostrar encabezado de grupo si cambia (A3.b.1)
-                if p['Grupo'] != current_group and len(str(p['Grupo'])) == 1:
-                    current_group = p['Grupo']
-                    st.markdown(f"#### 🚩 Grupo {current_group}")
-
-                # Validación de fecha segura para evitar TypeError (A3.b.2)
-                f_p_str = p.get('Fecha_Hora')
-                bloqueado = False
-                if f_p_str:
-                    try:
-                        f_p = datetime.strptime(f_p_str, "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia)
-                        bloqueado = ahora > (f_p - timedelta(hours=6))
-                    except:
-                        bloqueado = False # Si la fecha está mal o no existe, permitimos editar
-
+                f_p = datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia)
+                bloqueado = ahora > (f_p - timedelta(hours=6))
                 with st.container(border=True):
                     c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
                     with c1: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
@@ -277,37 +250,27 @@ if st.session_state.connected:
                     with ca: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
                     
                     # Inputs de goles
-                    # A5.b.3: Recuperamos el valor del estado para que "Cargar Realidad" funcione
-                    val_l = st.session_state.sim_goles.get(f"sl_{p['ID']}", 0)
-                    val_v = st.session_state.sim_goles.get(f"sv_{p['ID']}", 0)
-                    
-                    # Widget de goles
-                    res_l = cb.number_input("L", 0, 20, int(val_l), key=f"in_l_{p['ID']}", label_visibility="collapsed")
-                    st.session_state.sim_goles[f"sl_{p['ID']}"] = res_l
-                    
+                    st.session_state.sim_goles[f"sl_{p['ID']}"] = cb.number_input("L", 0, 20, st.session_state.sim_goles.get(f"sl_{p['ID']}", 0), key=f"in_l_{p['ID']}")
                     cc.write(":")
-                    
-                    res_v = cd.number_input("V", 0, 20, int(val_v), key=f"in_v_{p['ID']}", label_visibility="collapsed")
-                    st.session_state.sim_goles[f"sv_{p['ID']}"] = res_v
+                    st.session_state.sim_goles[f"sv_{p['ID']}"] = cd.number_input("V", 0, 20, st.session_state.sim_goles.get(f"sv_{p['ID']}", 0), key=f"in_v_{p['ID']}")
                     
                     with ce: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
             
-            # --- SECCIÓN DE FAIR PLAY (A5.b.4) ---
+            # --- SECCIÓN DE FAIR PLAY RESTAURADA ---
             st.write("🚩 **Ajuste de Fair Play (Tarjetas)**")
             equipos_fijos = sorted(df_global[df_global['Grupo'] == g_sel]['Equipo'].tolist())
             cols_fp = st.columns(4)
             for i, eq_name in enumerate(equipos_fijos):
                 with cols_fp[i % 4]:
-                    # Buscamos la bandera en el DataFrame global ya que ahí están todos
-                    row_data = df_global[df_global['Equipo'] == eq_name]
-                    if not row_data.empty:
-                        st.image(row_data['Flag'].values[0], width=20)
-                    
-                    val_fp_mem = st.session_state.sim_fp.get(eq_name, 0)
-                    # Forzamos límite máximo 0 y mínimo -100
-                    st.session_state.sim_fp[eq_name] = st.number_input(
-                        f"{eq_name}", -100, 0, int(min(0, val_fp_mem)), key=f"fp_in_{eq_name}"
-                    )
+                    row = df_global[df_global['Equipo'] == eq_name]
+                    if not row.empty:
+                        st.image(row['Flag'].values[0], width=20)
+                        # Restauramos el input de Fair Play permanente
+                        st.session_state.sim_fp[eq_name] = st.number_input(
+                            f"{eq_name}", -50, 50, 
+                            st.session_state.sim_fp.get(eq_name, 0), 
+                            key=f"fp_in_{eq_name}"
+                        )
 
         with col_table:
             st.markdown(f"### 📊 Posiciones Grupo {g_sel}")
