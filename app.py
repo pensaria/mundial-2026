@@ -216,14 +216,16 @@ if st.session_state.connected:
         st.subheader(t["nav_play"])
         
         # OBTENER USER ID DE SUPABASE (Crucial para el error de guardado)
-        # Asumimos que el usuario está conectado. Intentamos sacar su UUID.
         user_id = None
+        user_email = "usuario_prueba@gmail.com"
         try:
+            # Intentamos obtener la sesión activa de Supabase
             user_auth = supabase.auth.get_user()
-            user_id = user_auth.user.id
+            if user_auth and user_auth.user:
+                user_id = user_auth.user.id
+                user_email = user_auth.user.email
         except:
-            st.error("Error de sesión. Por favor, vuelve a iniciar sesión con Google.")
-            st.stop()
+            pass
 
         zona_sofia = ZoneInfo("Europe/Sofia")
         ahora = datetime.now(zona_sofia)
@@ -269,27 +271,30 @@ if st.session_state.connected:
             }
         }
 
-        # 2. Arreglar el orden del selector (Punto 2)
+        # 2. Orden del selector
         orden_maestro = ["🏆 Apuestas Especiales", "Jornada 1", "Jornada 2", "Jornada 3", 
                          "16vos de final", "8vos de final", "4tos de final", "Semifinal", "3er puesto y Final"]
-        
-        jornadas_existentes = list(set([p['Jornada'] for p in partidos_data if p['Jornada']]))
-        opciones = [f for f in orden_maestro if f in jornadas_existentes or f == "🏆 Apuestas Especiales"]
+        jornadas_db = list(set([p['Jornada'] for p in partidos_data if p['Jornada']]))
+        opciones = [f for f in orden_maestro if f in jornadas_db or f == "🏆 Apuestas Especiales"]
         
         j_sel = st.selectbox("Selecciona tu Apuesta:", opciones)
+        info_j = controles.get(j_sel, {"abre": ahora, "cierra": ahora + timedelta(days=365), "msg_antes": ""})
+        
+        if ahora < info_j["abre"]:
+            st.warning(info_j["msg_antes"])
+        else:
+            bloqueado = ahora > info_j["cierra"]
+            if bloqueado:
+                st.error("🔒 El tiempo para esta apuesta ha finalizado.")
             
             if j_sel == "🏆 Apuestas Especiales":
                 st.info("Selecciona tus candidatos. Límite: 11/Jun 17:00 hs.")
-                
-                # Lista base de equipos con ranking
                 equipos_db = []
                 for p in partidos_data:
                     if p['Local_ES'] and p['Local_ES'] not in [e['n'] for e in equipos_db]:
                         equipos_db.append({'n': p['Local_ES'], 'r': p['Rank_L'], 'b': p['Bandera_L']})
                 
                 nombres_todos = sorted([e['n'] for e in equipos_db])
-                
-                # Filtros Sorpresa/Decepción (Punto 3)
                 opciones_sorpresa = sorted([e['n'] for e in equipos_db if int(e['r']) > 10])
                 opciones_decepcion = sorted([e['n'] for e in equipos_db if int(e['r']) <= 10])
 
@@ -297,34 +302,32 @@ if st.session_state.connected:
                     c1, c2 = st.columns(2)
                     campeon = c1.selectbox("Campeón", nombres_todos)
                     subcampeon = c2.selectbox("Subcampeón", [e for e in nombres_todos if e != campeon])
-                    
                     c3, c4, c5 = st.columns(3)
                     tercero = c3.selectbox("3er Puesto", [e for e in nombres_todos if e not in [campeon, subcampeon]])
                     sorpresa = c4.selectbox("Equipo Sorpresa (Rank > 10)", opciones_sorpresa)
                     decepcion = c5.selectbox("Equipo Decepción (Rank <= 10)", opciones_decepcion)
                     
                     if st.form_submit_button("Guardar Especiales", disabled=bloqueado):
-                        # USAMOS EL UUID REAL PARA EVITAR EL APIError
-                        res = supabase.table("perfiles").upsert({
-                            "id": user_id, 
-                            "email": user_auth.user.email,
-                            "equipo_campeon": campeon, "equipo_subcampeon": subcampeon,
-                            "equipo_tercero": tercero, "equipo_sorpresa": sorpresa, "equipo_decepcion": decepcion
-                        }).execute()
-                        st.success("¡Apuestas guardadas correctamente!")
+                        if user_id:
+                            supabase.table("perfiles").upsert({
+                                "id": user_id, "email": user_email,
+                                "equipo_campeon": campeon, "equipo_subcampeon": subcampeon,
+                                "equipo_tercero": tercero, "equipo_sorpresa": sorpresa, "equipo_decepcion": decepcion
+                            }).execute()
+                            st.success("¡Apuestas guardadas correctamente!")
+                        else:
+                            st.error("No se pudo identificar tu ID de usuario. Reintenta el login.")
             else:
                 # PRODE NORMAL
-                preds = obtener_predicciones_usuario(email_user)
+                preds = obtener_predicciones_usuario(user_email)
                 with st.form("f_prode"):
                     partidos_j = [p for p in partidos_data if p['Jornada'] == j_sel]
                     partidos_j = sorted(partidos_j, key=lambda x: (x['Grupo'] if x['Grupo'] else "Z", x['ID']))
-                    
                     current_group = None
                     for p in partidos_j:
                         if p['Grupo'] != current_group and p['Grupo'] is not None and len(str(p['Grupo'])) == 1:
                             current_group = p['Grupo']
                             st.markdown(f"#### 🚩 Grupo {current_group}")
-
                         with st.container(border=True):
                             c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
                             with c1: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
@@ -334,11 +337,10 @@ if st.session_state.connected:
                             c3.markdown("<div style='text-align:center; padding-top:10px;'>:</div>", unsafe_allow_html=True)
                             gv = c4.number_input("V", 0, 20, v_v, key=f"v_{p['ID']}", label_visibility="collapsed", disabled=bloqueado)
                             with c5: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
-                    
                     if st.form_submit_button(t["save_btn"], use_container_width=True, disabled=bloqueado):
                         for p in partidos_j:
-                            guardar_prediccion_supabase(email_user, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
-                        st.success("¡Pronósticos guardados!"); st.rerun()
+                            guardar_prediccion_supabase(user_email, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
+                        st.success("¡Guardado!"); st.rerun()
 
     # --- 3. RESULTADOS ---
     elif menu == t["nav_results"]:
