@@ -329,30 +329,31 @@ if st.session_state.connected:
                         st.error("❌ No se pudo identificar tu sesión de Google.")
             st.stop() # Evita que se dibuje el formulario de partidos normales abajo
 
-                # PRODE NORMAL
-                preds = obtener_predicciones_usuario(user_email)
-                with st.form("f_prode"):
-                    partidos_j = [p for p in partidos_data if p['Jornada'] == j_sel]
-                    partidos_j = sorted(partidos_j, key=lambda x: (x['Grupo'] if x['Grupo'] else "Z", x['ID']))
-                    current_group = None
-                    for p in partidos_j:
-                        if p['Grupo'] != current_group and p['Grupo'] is not None and len(str(p['Grupo'])) == 1:
-                            current_group = p['Grupo']
-                            st.markdown(f"#### 🚩 Grupo {current_group}")
-                        with st.container(border=True):
-                            c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
-                            with c1: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
-                            v_l = preds.get(str(p['ID']), {}).get('goles_local', 0)
-                            v_v = preds.get(str(p['ID']), {}).get('goles_visitante', 0)
-                            gl = c2.number_input("L", 0, 20, v_l, key=f"l_{p['ID']}", label_visibility="collapsed", disabled=bloqueado)
-                            c3.markdown("<div style='text-align:center; padding-top:10px;'>:</div>", unsafe_allow_html=True)
-                            gv = c4.number_input("V", 0, 20, v_v, key=f"v_{p['ID']}", label_visibility="collapsed", disabled=bloqueado)
-                            with c5: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
-                    if st.form_submit_button(t["save_btn"], use_container_width=True, disabled=bloqueado):
-                        for p in partidos_j:
-                            guardar_prediccion_supabase(user_email, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
-                        st.success("¡Guardado!"); st.rerun()
-
+# PRODE NORMAL
+        preds = obtener_predicciones_usuario(user_email)
+        with st.form("f_prode"):
+            partidos_j = [p for p in partidos_data if p['Jornada'] == j_sel]
+            partidos_j = sorted(partidos_j, key=lambda x: (x['Grupo'] if x['Grupo'] else "Z", x['ID']))
+            current_group = None
+            for p in partidos_j:
+                if p['Grupo'] != current_group and p['Grupo'] is not None and len(str(p['Grupo'])) == 1:
+                    current_group = p['Grupo']
+                    st.markdown(f"#### 🚩 Grupo {current_group}")
+                with st.container(border=True):
+                    c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                    with c1: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
+                    v_l = preds.get(str(p['ID']), {}).get('goles_local', 0)
+                    v_v = preds.get(str(p['ID']), {}).get('goles_visitante', 0)
+                    gl = c2.number_input("L", 0, 20, v_l, key=f"l_{p['ID']}", label_visibility="collapsed", disabled=bloqueado)
+                    c3.markdown("<div style='text-align:center; padding-top:10px;'>:</div>", unsafe_allow_html=True)
+                    gv = c4.number_input("V", 0, 20, v_v, key=f"v_{p['ID']}", label_visibility="collapsed", disabled=bloqueado)
+                    with c5: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
+            
+            if st.form_submit_button(t["save_btn"], use_container_width=True, disabled=bloqueado):
+                for p in partidos_j:
+                    guardar_prediccion_supabase(user_email, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
+                st.success("¡Guardado!"); st.rerun()
+                
     # --- 3. RESULTADOS ---
     elif menu == t["nav_results"]:
         st.subheader(t["nav_results"])
