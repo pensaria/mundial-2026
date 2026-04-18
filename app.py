@@ -106,7 +106,6 @@ def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
         return f'<div style="display: flex; align-items: center; justify-content: {"flex-start" if align=="left" else "flex-end"}; flex-direction: {flex}; gap: 10px;"><span>{nombre}</span></div>'
     return f'<div style="display: flex; align-items: center; justify-content: {"flex-start" if align=="left" else "flex-end"}; flex-direction: {flex}; gap: 10px;"><img src="{url_bandera}" width="30" style="border-radius:2px;"><span>{nombre}</span></div>'
 
-
 # --- SESIÓN ---
 if "connected" not in st.session_state: st.session_state.connected = False
 if "code" in st.query_params: st.session_state.connected = True
@@ -188,9 +187,7 @@ if st.session_state.connected:
             st.divider()
 
             # Selector de Jornada
-            # Usar la columna correcta según el idioma
             jornada_key = 'Jornada_ES' if lang == "Español" else 'Jornada_EN'
-            # Extraer jornadas únicas manteniendo el orden lógico (Airtable debería estar ordenado por ID)
             jornadas_list = []
             for p in partidos_data:
                 j_val = p.get(jornada_key)
@@ -202,7 +199,6 @@ if st.session_state.connected:
             else:
                 j_sel = st.selectbox("Jornada / Matchday:", jornadas_list)
                 
-                # Mensajes de bloqueo para eliminatorias
                 mensajes_bloqueo = {
                     "16vos de final": "Los equipos se definirán tras la finalización de la Fecha 3. ¡Vuelve el 28/6/2026 a las 8:00 hs!",
                     "Round of 32": "Teams will be defined after Matchday 3. Come back on 6/28/2026 at 8:00 AM!",
@@ -225,7 +221,6 @@ if st.session_state.connected:
 
                         for p in partidos_ordenados:
                             with st.container(border=True):
-                                # Nombre del grupo sin bandera roja
                                 st.caption(f"Grupo {p['Grupo']}")
                                 c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
                                 
@@ -252,21 +247,42 @@ if st.session_state.connected:
     elif menu == t["nav_results"]:
         st.subheader(t["nav_results"])
         stats = {}
+        
+        # 1. Pre-cargar TODOS los equipos con 0 (Soluciona el problema de los grupos faltantes)
+        for p in partidos_data:
+            if p['Grupo'] != "Definir":
+                for eq_key, bnd_key, rnk_key in [('Local', 'Bandera_L', 'Rank_L'), ('Visitante', 'Bandera_V', 'Rank_V')]:
+                    eq_name = p[f'{eq_key}_ES'] if lang == "Español" else p[f'{eq_key}_EN']
+                    if eq_name and eq_name not in stats:
+                        stats[eq_name] = {
+                            'Flag': p[bnd_key], 'Equipo': eq_name, 'PJ': 0, 'PTS': 0, 
+                            'DG': 0, 'GF': 0, 'GC': 0, 'FP': 0, 'Rank': p[rnk_key], 'Grupo': p['Grupo']
+                        }
+
+        # 2. Cargar los resultados reales sumando a las stats
         for p in [p for p in partidos_data if p['Goles Real L'] is not None and p['Grupo'] != "Definir"]:
-            for eq, gl, gc, rnk, bnd, grp, fp in [(p['Local_ES'] if lang=="Español" else p['Local_EN'], p['Goles Real L'], p['Goles Real V'], p['Rank_L'], p['Bandera_L'], p['Grupo'], p['FP_L']), 
-                                                 (p['Visitante_ES'] if lang=="Español" else p['Visitante_EN'], p['Goles Real V'], p['Goles Real L'], p['Rank_V'], p['Bandera_V'], p['Grupo'], p['FP_V'])]:
-                if eq not in stats: stats[eq] = {'Flag': bnd, 'Equipo': eq, 'PJ':0, 'PTS':0, 'DG':0, 'GF':0, 'FP': 0, 'Rank': rnk, 'Grupo': grp}
-                stats[eq]['PJ'] += 1; stats[eq]['GF'] += gl; stats[eq]['DG'] += (gl - gc); stats[eq]['FP'] += fp
-                if gl > gc: stats[eq]['PTS'] += 3
-                elif gl == gc: stats[eq]['PTS'] += 1
+            eq_l = p['Local_ES'] if lang == "Español" else p['Local_EN']
+            eq_v = p['Visitante_ES'] if lang == "Español" else p['Visitante_EN']
+            gl, gv = p['Goles Real L'], p['Goles Real V']
+            
+            stats[eq_l]['PJ'] += 1; stats[eq_l]['GF'] += gl; stats[eq_l]['GC'] += gv; stats[eq_l]['DG'] += (gl - gv); stats[eq_l]['FP'] += p['FP_L']
+            stats[eq_v]['PJ'] += 1; stats[eq_v]['GF'] += gv; stats[eq_v]['GC'] += gl; stats[eq_v]['DG'] += (gv - gl); stats[eq_v]['FP'] += p['FP_V']
+            
+            if gl > gv: stats[eq_l]['PTS'] += 3
+            elif gl < gv: stats[eq_v]['PTS'] += 3
+            else:
+                stats[eq_l]['PTS'] += 1; stats[eq_v]['PTS'] += 1
 
         grupos = sorted(list(set([s['Grupo'] for s in stats.values()])))
         tablas_finales = {}
+        
+        # Mostrar Tablas de Posiciones
         for g in grupos:
             st.write(f"### GRUPO {g}")
             df_g = pd.DataFrame([s for s in stats.values() if s['Grupo'] == g]).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
             tablas_finales[g] = df_g
-            st.data_editor(df_g[['Flag', 'Equipo', 'PJ', 'PTS', 'DG', 'GF']], column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, key=f"res_{g}", use_container_width=True)
+            # Se agregó GC a la vista
+            st.data_editor(df_g[['Flag', 'Equipo', 'PJ', 'PTS', 'DG', 'GF', 'GC']], column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, key=f"res_{g}", use_container_width=True)
 
         st.divider()
         st.subheader("🥉 Mejores Terceros / Best Third-Placed Teams")
@@ -276,14 +292,69 @@ if st.session_state.connected:
         if terceros:
             df_3 = pd.DataFrame(terceros).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True]).reset_index(drop=True)
             def highlight_3(s): return ['background-color: rgba(46, 204, 113, 0.3)' if s.name < 8 else '' for _ in s]
-            st.data_editor(df_3[['Flag', 'Equipo', 'Grupo', 'PTS', 'DG', 'GF']].style.apply(highlight_3, axis=1), column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, use_container_width=True)
+            st.data_editor(df_3[['Flag', 'Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'GC']].style.apply(highlight_3, axis=1), column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, use_container_width=True)
 
-        # --- SECCIÓN DE CRUCES RESULTADOS ---
         st.divider()
-        st.subheader("🏆 Knockout Stage / Fase de Eliminatorias")
-        txt_def = "Por definirse..." if lang == "Español" else "To be defined..."
-        c1, c2, c3 = st.columns(3); c1.info(f"**Round of 32 / 16vos**\n\n{txt_def}"); c2.info(f"**Round of 16 / 8vos**\n\n{txt_def}"); c3.info(f"**Quarter-finals / 4tos**\n\n{txt_def}")
-        c4, c5, c6 = st.columns(3); c4.warning(f"**Semi-finals / Semifinales**\n\n{txt_def}"); c5.success(f"**Third Place / 3er Puesto**\n\n{txt_def}"); c6.error(f"**GRAND FINAL / GRAN FINAL**\n\n{txt_def}")
+        
+        # --- DESPLEGABLE DE PARTIDOS REALES JUGADOS ---
+        st.subheader("📅 " + ("Resultados por Jornada" if lang == "Español" else "Results by Matchday"))
+        jornada_key = 'Jornada_ES' if lang == "Español" else 'Jornada_EN'
+        jornadas_res_list = []
+        for p in partidos_data:
+            j_val = p.get(jornada_key)
+            if j_val and j_val not in jornadas_res_list:
+                jornadas_res_list.append(j_val)
+                
+        if jornadas_res_list:
+            j_res_sel = st.selectbox("Seleccionar / Select:", jornadas_res_list, key="sel_resultados")
+            partidos_res = [p for p in partidos_data if p.get(jornada_key) == j_res_sel]
+            
+            for p in partidos_res:
+                with st.container(border=True):
+                    c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                    with c1: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
+                    
+                    # Mostrar goles si los hay, si no mostrar guión
+                    gl_txt = p['Goles Real L'] if p['Goles Real L'] is not None else "-"
+                    gv_txt = p['Goles Real V'] if p['Goles Real V'] is not None else "-"
+                    
+                    c2.markdown(f"<div style='text-align:right; font-size:18px; font-weight:bold;'>{gl_txt}</div>", unsafe_allow_html=True)
+                    c3.markdown("<div style='text-align:center; padding-top:2px;'>:</div>", unsafe_allow_html=True)
+                    c4.markdown(f"<div style='text-align:left; font-size:18px; font-weight:bold;'>{gv_txt}</div>", unsafe_allow_html=True)
+                    
+                    with c5: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
+        
+        # --- SECCIÓN DE CRUCES RESULTADOS CON ESTRUCTURA ENFRENTADA ---
+        st.divider()
+        st.subheader("🏆 Knockout Stage / Fase de Eliminatorias (16vos)")
+        
+        col_izq, col_der = st.columns(2)
+        
+        with col_izq:
+            st.markdown("#### Llave Izquierda")
+            cruces_izq = [
+                ("M74", "1E", "3ro (A/B/C/D/F)"), ("M77", "1I", "3ro (C/D/F/G/H)"),
+                ("M73", "2A", "2B"), ("M75", "1F", "2C"),
+                ("M83", "2K", "2L"), ("M84", "1H", "2J"),
+                ("M81", "1D", "3ro (B/E/F/I/J)"), ("M82", "1G", "3ro (A/E/H/I/J)")
+            ]
+            for match_id, eq1, eq2 in cruces_izq:
+                with st.container(border=True):
+                    st.caption(match_id)
+                    st.markdown(f"**{eq1}** vs **{eq2}**")
+
+        with col_der:
+            st.markdown("#### Llave Derecha")
+            cruces_der = [
+                ("M76", "1C", "2F"), ("M78", "2E", "2I"),
+                ("M79", "1A", "3ro (C/E/F/H/I)"), ("M80", "1L", "3ro (E/H/I/J/K)"),
+                ("M86", "1J", "2H"), ("M88", "2D", "2G"),
+                ("M85", "1B", "3ro (E/F/G/I/J)"), ("M87", "1K", "3ro (D/E/I/J/L)")
+            ]
+            for match_id, eq1, eq2 in cruces_der:
+                with st.container(border=True):
+                    st.caption(match_id)
+                    st.markdown(f"**{eq1}** vs **{eq2}**")
 
     # --- 4. SIMULADOR ---
     elif menu == t["nav_sim"]:
