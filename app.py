@@ -105,9 +105,8 @@ def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
         return f'<div style="display: flex; align-items: center; justify-content: {"flex-start" if align=="left" else "flex-end"}; flex-direction: {flex}; gap: 10px;"><span>{nombre}</span></div>'
     return f'<div style="display: flex; align-items: center; justify-content: {"flex-start" if align=="left" else "flex-end"}; flex-direction: {flex}; gap: 10px;"><img src="{url_bandera}" width="30" style="border-radius:2px;"><span>{nombre}</span></div>'
 
-# --- FUNCIÓN LÓGICA PARA LOS 8 MEJORES TERCEROS (EVITA EL CSV PESADO) ---
+# --- LÓGICA PARA LOS 8 MEJORES TERCEROS ---
 def asignar_terceros(grupos_terceros):
-    # Calcula instantáneamente las 495 combinaciones de FIFA
     permitidos = {
         'R1': ['C', 'E', 'F', 'H', 'I'], 'R2': ['E', 'F', 'G', 'I', 'J'],
         'R3': ['B', 'E', 'F', 'I', 'J'], 'R4': ['A', 'B', 'C', 'D', 'F'],
@@ -436,29 +435,29 @@ if st.session_state.connected:
                     st.caption("M104")
                     st.markdown(f"**W101** vs **W102**")
 
-    # --- 4. SIMULADOR (FASE 2.1: COMPLETAMENTE OPTIMIZADO) ---
+    # --- 4. SIMULADOR (FASE 2.2: MEMORIA PERMANENTE Y CUADRO COMPLETO) ---
     elif menu == t["nav_sim"]:
         st.subheader(t["nav_sim"])
 
-        # --- BOTONERA SUPERIOR ---
+        # --- MEMORIA ABSOLUTA (AMNESIA FIX) ---
+        if "sim_goles_dict" not in st.session_state: st.session_state.sim_goles_dict = {}
+        if "sim_fp_dict" not in st.session_state: st.session_state.sim_fp_dict = {}
+
         c_r1, c_r2, _ = st.columns([1, 1, 2])
         with c_r1:
             if st.button("♻️ " + ("Borrar Todo" if lang=="Español" else "Reset All"), use_container_width=True):
-                # Limpiamos la memoria local y activamos flag para ignorar FP de Airtable
-                for key in list(st.session_state.keys()):
-                    if key.startswith("sim_l_") or key.startswith("sim_v_") or key.startswith("fp_in_"):
-                        st.session_state[key] = None
-                st.session_state.sim_fp_override = True
+                st.session_state.sim_goles_dict = {}
+                st.session_state.sim_fp_dict = {}
+                st.session_state.sim_fp_override = True  # FIX: Ignora el Fair Play de Airtable
                 st.session_state.generar_cuadro = False
                 st.rerun()
         with c_r2:
             if st.button("🏟️ " + ("Restablecer a Realidad" if lang=="Español" else "Reset to Real"), use_container_width=True):
-                # Cargamos los goles de Airtable a la memoria local
                 for p in partidos_data:
                     if p['Goles Real L'] is not None and p['Goles Real V'] is not None:
-                        st.session_state[f"sim_l_{p['ID']}"] = p['Goles Real L']
-                        st.session_state[f"sim_v_{p['ID']}"] = p['Goles Real V']
-                st.session_state.sim_fp_override = False # Volvemos a usar el FP real de Airtable
+                        st.session_state.sim_goles_dict[f"sl_{p['ID']}"] = p['Goles Real L']
+                        st.session_state.sim_goles_dict[f"sv_{p['ID']}"] = p['Goles Real V']
+                st.session_state.sim_fp_override = False # Vuelve a usar el FP de Airtable
                 st.session_state.generar_cuadro = False
                 st.rerun()
 
@@ -468,7 +467,17 @@ if st.session_state.connected:
         if not grupos_disponibles:
             st.warning("No hay grupos definidos.")
         else:
-            # --- MOTOR MATEMÁTICO EN VIVO (H2H FIFA) ---
+            # Diccionario visual de equipos (para las banderas del Cuadro Final)
+            equipos_info = {}
+            for p in partidos_data:
+                for eq_key, bnd_key in [('Local', 'Bandera_L'), ('Visitante', 'Bandera_V')]:
+                    es = p[f'{eq_key}_ES']
+                    en = p[f'{eq_key}_EN']
+                    if es:
+                        equipos_info[es] = {"flag": p[bnd_key]}
+                        equipos_info[en] = {"flag": p[bnd_key]}
+
+            # --- MOTOR MATEMÁTICO (Lee del Diccionario Permanente) ---
             s_dict = {}
             for p in partidos_data:
                 if p['Grupo'] == "Definir": continue
@@ -482,10 +491,9 @@ if st.session_state.connected:
                 eq_l = p['Local_ES'] if lang == "Español" else p['Local_EN']
                 eq_v = p['Visitante_ES'] if lang == "Español" else p['Visitante_EN']
 
-                gl = st.session_state.get(f"sim_l_{p['ID']}")
-                gv = st.session_state.get(f"sim_v_{p['ID']}")
+                gl = st.session_state.sim_goles_dict.get(f"sl_{p['ID']}")
+                gv = st.session_state.sim_goles_dict.get(f"sv_{p['ID']}")
 
-                # Criterio: Solo suma puntos si la casilla NO está vacía
                 if gl is not None and gv is not None and eq_l and eq_v:
                     s_dict[eq_l]['PJ'] += 1; s_dict[eq_v]['PJ'] += 1
                     s_dict[eq_l]['GF'] += gl; s_dict[eq_v]['GF'] += gv
@@ -496,17 +504,12 @@ if st.session_state.connected:
                     pts_v = 3 if gv > gl else (1 if gl == gv else 0)
 
                     s_dict[eq_l]['PTS'] += pts_l; s_dict[eq_v]['PTS'] += pts_v
-                    
-                    # Registro para Mini-Tabla H2H
                     s_dict[eq_l]['H2H_Matches'].append({'rival': eq_v, 'gf': gl, 'gc': gv, 'pts': pts_l})
                     s_dict[eq_v]['H2H_Matches'].append({'rival': eq_l, 'gf': gv, 'gc': gl, 'pts': pts_v})
 
             for eq in s_dict:
-                # Si Borrar Todo está activo, FP base es 0. Si no, toma el de Airtable.
                 base_fp = 0 if st.session_state.get('sim_fp_override', False) else s_dict[eq]['FP_Base']
-                adj_fp = st.session_state.get(f"fp_in_{eq}")
-                if adj_fp is None: adj_fp = 0
-                s_dict[eq]['FP'] = base_fp + adj_fp
+                s_dict[eq]['FP'] = base_fp + st.session_state.sim_fp_dict.get(eq, 0)
 
             def fifa_sort_key(e):
                 empatados = [x for x in s_dict.values() if x['Grupo'] == e['Grupo'] and x['PTS'] == e['PTS']]
@@ -521,7 +524,7 @@ if st.session_state.connected:
 
             df_global = pd.DataFrame(sorted(s_dict.values(), key=fifa_sort_key))
 
-            # --- SELECTOR FUERA DEL FORMULARIO ---
+            # Selector protegido
             idx_grupo = grupos_disponibles.index(st.session_state.sim_grupo_sel) if st.session_state.get("sim_grupo_sel") in grupos_disponibles else 0
             g_sel = st.radio("Enfocar Grupo / Focus Group:", grupos_disponibles, horizontal=True, index=idx_grupo)
             st.session_state.sim_grupo_sel = g_sel
@@ -531,7 +534,7 @@ if st.session_state.connected:
             with col_izq:
                 st.markdown(f"### ⚽ Partidos Grupo {g_sel}")
                 
-                # --- EL FORMULARIO (ANTI-LAG) ---
+                # --- EL FORMULARIO ANTI-LAG ---
                 with st.form(f"form_sim_{g_sel}"):
                     partidos_grupo = [p for p in partidos_data if p['Grupo'] == g_sel]
                     for p in partidos_grupo:
@@ -540,15 +543,15 @@ if st.session_state.connected:
                             c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
                             with c1: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
                             
-                            val_l = st.session_state.get(f"sim_l_{p['ID']}")
-                            kwargs_l = {"min_value": 0, "max_value": 20, "key": f"sim_l_{p['ID']}", "label_visibility": "collapsed", "placeholder": "-"}
+                            val_l = st.session_state.sim_goles_dict.get(f"sl_{p['ID']}")
+                            kwargs_l = {"min_value": 0, "max_value": 20, "key": f"temp_l_{p['ID']}", "label_visibility": "collapsed", "placeholder": "-"}
                             if val_l is not None: kwargs_l["value"] = val_l
                             c2.number_input("L", **kwargs_l)
                             
                             c3.markdown("<div style='text-align:center; padding-top:10px;'>:</div>", unsafe_allow_html=True)
                             
-                            val_v = st.session_state.get(f"sim_v_{p['ID']}")
-                            kwargs_v = {"min_value": 0, "max_value": 20, "key": f"sim_v_{p['ID']}", "label_visibility": "collapsed", "placeholder": "-"}
+                            val_v = st.session_state.sim_goles_dict.get(f"sv_{p['ID']}")
+                            kwargs_v = {"min_value": 0, "max_value": 20, "key": f"temp_v_{p['ID']}", "label_visibility": "collapsed", "placeholder": "-"}
                             if val_v is not None: kwargs_v["value"] = val_v
                             c4.number_input("V", **kwargs_v)
                             
@@ -569,12 +572,20 @@ if st.session_state.connected:
                                 else:
                                     st.markdown(f"<small>{eq_name}</small>", unsafe_allow_html=True)
 
-                            val_fp = st.session_state.get(f"fp_in_{eq_name}")
-                            kwargs_fp = {"min_value": -50, "max_value": 0, "key": f"fp_in_{eq_name}", "label_visibility": "collapsed"}
+                            val_fp = st.session_state.sim_fp_dict.get(eq_name, 0)
+                            # FIX: -99 a 0, valor por defecto 0.
+                            kwargs_fp = {"min_value": -99, "max_value": 0, "key": f"temp_fp_{eq_name}", "label_visibility": "collapsed"}
                             if val_fp is not None: kwargs_fp["value"] = val_fp
                             st.number_input("FP", **kwargs_fp)
                     
-                    st.form_submit_button("⚽ Simular Grupo!", type="primary", use_container_width=True)
+                    submit_btn = st.form_submit_button("⚽ Simular Grupo!", type="primary", use_container_width=True)
+                    if submit_btn:
+                        for p in partidos_grupo:
+                            st.session_state.sim_goles_dict[f"sl_{p['ID']}"] = st.session_state[f"temp_l_{p['ID']}"]
+                            st.session_state.sim_goles_dict[f"sv_{p['ID']}"] = st.session_state[f"temp_v_{p['ID']}"]
+                        for eq_name in eq_nombres:
+                            st.session_state.sim_fp_dict[eq_name] = st.session_state[f"temp_fp_{eq_name}"]
+                        st.rerun()
 
             with col_der:
                 st.markdown(f"### 📊 Posiciones Grupo {g_sel}")
@@ -588,8 +599,7 @@ if st.session_state.connected:
                 terceros = []
                 for g in grupos_disponibles:
                     df_grp = df_global[df_global['Grupo'] == g]
-                    if len(df_grp) >= 3:
-                        terceros.append(df_grp.iloc[2])
+                    if len(df_grp) >= 3: terceros.append(df_grp.iloc[2])
 
                 if terceros:
                     df_3 = pd.DataFrame(terceros).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True]).reset_index(drop=True)
@@ -599,7 +609,6 @@ if st.session_state.connected:
                         column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, use_container_width=True, disabled=True
                     )
 
-            # --- VISTAS GLOBALES ---
             st.divider()
             with st.expander("🌍 Ver Cuadro Completo (Todos los Grupos)", expanded=False):
                 filas_grupos = [grupos_disponibles[i:i + 4] for i in range(0, len(grupos_disponibles), 4)]
@@ -611,82 +620,158 @@ if st.session_state.connected:
                             df_mini = df_global[df_global['Grupo'] == g_id][['Flag', 'Equipo', 'PTS', 'DG']]
                             st.dataframe(df_mini, column_config={"Flag": st.column_config.ImageColumn("")}, hide_index=True, use_container_width=True)
 
-            # --- CUADRO DE ELIMINATORIAS (CON BOTÓN AISLADO) ---
+            # --- SIMULADOR DE ELIMINATORIAS (CON PENALES) ---
             st.divider()
             if st.button("🏆 Generar Cuadro Final", type="primary", use_container_width=True):
                 st.session_state.generar_cuadro = True
                 st.rerun()
 
             if st.session_state.get("generar_cuadro", False):
-                rankings = {}
+                # Recolectamos posiciones de los grupos
+                r_grp = {}
                 for g in grupos_disponibles:
                     df_grp = df_global[df_global['Grupo'] == g]
-                    if len(df_grp) >= 2:
-                        rankings[f"1{g}"] = df_grp.iloc[0]['Equipo']
-                        rankings[f"2{g}"] = df_grp.iloc[1]['Equipo']
-                    else:
-                        rankings[f"1{g}"] = f"1{g}"
-                        rankings[f"2{g}"] = f"2{g}"
+                    r_grp[f"1{g}"] = df_grp.iloc[0]['Equipo'] if len(df_grp) >= 1 else f"1{g}"
+                    r_grp[f"2{g}"] = df_grp.iloc[1]['Equipo'] if len(df_grp) >= 2 else f"2{g}"
                 
-                # Lógica Inteligente para los 8 Mejores Terceros
+                # Algoritmo 495 Terceros
                 if len(terceros) >= 8:
-                    df_3 = pd.DataFrame(terceros).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True]).reset_index(drop=True)
                     top_8 = df_3.head(8)
-                    grupos_8 = top_8['Grupo'].tolist()
-                    equipos_8 = top_8['Equipo'].tolist()
-                    
-                    asignacion = asignar_terceros(grupos_8)
-                    
+                    asignacion = asignar_terceros(top_8['Grupo'].tolist())
                     if asignacion:
-                        terceros_dict = {g: eq for g, eq in zip(grupos_8, equipos_8)}
-                        rankings["M79_3"] = terceros_dict[asignacion['R1']]
-                        rankings["M85_3"] = terceros_dict[asignacion['R2']]
-                        rankings["M81_3"] = terceros_dict[asignacion['R3']]
-                        rankings["M74_3"] = terceros_dict[asignacion['R4']]
-                        rankings["M82_3"] = terceros_dict[asignacion['R5']]
-                        rankings["M77_3"] = terceros_dict[asignacion['R6']]
-                        rankings["M87_3"] = terceros_dict[asignacion['R7']]
-                        rankings["M80_3"] = terceros_dict[asignacion['R8']]
-                    else:
-                        st.error("Calculando cruces de terceros...")
+                        t_dict = {g: eq for g, eq in zip(top_8['Grupo'].tolist(), top_8['Equipo'].tolist())}
+                        r_grp["M79_3"] = t_dict[asignacion['R1']]
+                        r_grp["M85_3"] = t_dict[asignacion['R2']]
+                        r_grp["M81_3"] = t_dict[asignacion['R3']]
+                        r_grp["M74_3"] = t_dict[asignacion['R4']]
+                        r_grp["M82_3"] = t_dict[asignacion['R5']]
+                        r_grp["M77_3"] = t_dict[asignacion['R6']]
+                        r_grp["M87_3"] = t_dict[asignacion['R7']]
+                        r_grp["M80_3"] = t_dict[asignacion['R8']]
 
-                cruces_izq = [
-                    ("M74", rankings.get("1E", "1E"), rankings.get("M74_3", "3ro")),
-                    ("M77", rankings.get("1I", "1I"), rankings.get("M77_3", "3ro")),
-                    ("M73", rankings.get("2A", "2A"), rankings.get("2B", "2B")),
-                    ("M75", rankings.get("1F", "1F"), rankings.get("2C", "2C")),
-                    ("M83", rankings.get("2K", "2K"), rankings.get("2L", "2L")),
-                    ("M84", rankings.get("1H", "1H"), rankings.get("2J", "2J")),
-                    ("M81", rankings.get("1D", "1D"), rankings.get("M81_3", "3ro")),
-                    ("M82", rankings.get("1G", "1G"), rankings.get("M82_3", "3ro"))
-                ]
-                
-                cruces_der = [
-                    ("M76", rankings.get("1C", "1C"), rankings.get("2F", "2F")),
-                    ("M78", rankings.get("2E", "2E"), rankings.get("2I", "2I")),
-                    ("M79", rankings.get("1A", "1A"), rankings.get("M79_3", "3ro")),
-                    ("M80", rankings.get("1L", "1L"), rankings.get("M80_3", "3ro")),
-                    ("M86", rankings.get("1J", "1J"), rankings.get("2H", "2H")),
-                    ("M88", rankings.get("2D", "2D"), rankings.get("2G", "2G")),
-                    ("M85", rankings.get("1B", "1B"), rankings.get("M85_3", "3ro")),
-                    ("M87", rankings.get("1K", "1K"), rankings.get("M87_3", "3ro"))
-                ]
-                
-                with st.expander("🏆 Cuadro de Eliminatorias Simuladas", expanded=True):
-                    col_ko1, col_ko2 = st.columns(2)
-                    with col_ko1:
-                        st.markdown("#### Llave Izquierda (16vos)")
-                        for match_id, eq1, eq2 in cruces_izq:
-                            with st.container(border=True):
-                                st.caption(match_id)
-                                st.markdown(f"**{eq1}** vs **{eq2}**")
+                # Función que renderiza un partido eliminatorio y devuelve ganador/perdedor
+                def render_sim_ko_match(m_id, t_l, t_v):
+                    known_l = t_l in equipos_info
+                    known_v = t_v in equipos_info
+                    
+                    if not known_l or not known_v:
+                        with st.container(border=True):
+                            st.caption(m_id)
+                            st.markdown(f"<div style='text-align:center; color:gray;'><b>{t_l}</b> vs <b>{t_v}</b></div>", unsafe_allow_html=True)
+                        return f"W{m_id.replace('M','')}", f"L{m_id.replace('M','')}"
+                        
+                    with st.container(border=True):
+                        st.caption(m_id)
+                        c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                        
+                        flag_l = equipos_info[t_l]['flag']
+                        flag_v = equipos_info[t_v]['flag']
+                        
+                        with c1: st.markdown(render_equipo(t_l, t_l, flag_l, lang), unsafe_allow_html=True)
+                        
+                        key_gl, key_gv = f"sko_gl_{m_id}", f"sko_gv_{m_id}"
+                        gl, gv = st.session_state.get(key_gl), st.session_state.get(key_gv)
+                        
+                        new_gl = c2.number_input("L", min_value=0, max_value=20, value=gl, key=f"in_{key_gl}", label_visibility="collapsed", placeholder="-")
+                        c3.markdown("<div style='text-align:center; padding-top:10px;'>:</div>", unsafe_allow_html=True)
+                        new_gv = c4.number_input("V", min_value=0, max_value=20, value=gv, key=f"in_{key_gv}", label_visibility="collapsed", placeholder="-")
+                        
+                        st.session_state[key_gl], st.session_state[key_gv] = new_gl, new_gv
+                        
+                        with c5: st.markdown(render_equipo(t_v, t_v, flag_v, lang, align="right"), unsafe_allow_html=True)
+                        
+                        winner, loser = f"W{m_id.replace('M','')}", f"L{m_id.replace('M','')}"
+                        
+                        if new_gl is not None and new_gv is not None:
+                            if new_gl > new_gv: winner, loser = t_l, t_v
+                            elif new_gv > new_gl: winner, loser = t_v, t_l
+                            else:
+                                # EMPATE -> PENALES
+                                st.markdown("<div style='text-align:center; font-size:11px; color:gray; margin-top:-10px; margin-bottom:5px;'>Penales / Penalties</div>", unsafe_allow_html=True)
+                                cp1, cp2, cp3, cp4, cp5 = st.columns([3, 1, 0.5, 1, 3])
+                                key_pl, key_pv = f"sko_pl_{m_id}", f"sko_pv_{m_id}"
+                                pl, pv = st.session_state.get(key_pl), st.session_state.get(key_pv)
+                                
+                                new_pl = cp2.number_input("PL", min_value=0, max_value=30, value=pl, key=f"in_{key_pl}", label_visibility="collapsed", placeholder="-")
+                                cp3.markdown("<div style='text-align:center; padding-top:10px;'>:</div>", unsafe_allow_html=True)
+                                new_pv = cp4.number_input("PV", min_value=0, max_value=30, value=pv, key=f"in_{key_pv}", label_visibility="collapsed", placeholder="-")
+                                
+                                st.session_state[key_pl], st.session_state[key_pv] = new_pl, new_pv
+                                
+                                if new_pl is not None and new_pv is not None:
+                                    if new_pl > new_pv: winner, loser = t_l, t_v
+                                    elif new_pv > new_pl: winner, loser = t_v, t_l
+                    return winner, loser
 
-                    with col_ko2:
-                        st.markdown("#### Llave Derecha (16vos)")
-                        for match_id, eq1, eq2 in cruces_der:
-                            with st.container(border=True):
-                                st.caption(match_id)
-                                st.markdown(f"**{eq1}** vs **{eq2}**")
+                with st.expander("🏆 Jugar Play-Offs Completos", expanded=True):
+                    tab_16, tab_8, tab_4, tab_semi, tab_fin = st.tabs(["16vos", "8vos", "4tos", "Semis", "Final & 3er"])
+                    
+                    ko_win = {}
+                    ko_lose = {}
+
+                    # 16VOS
+                    with tab_16:
+                        c_i, c_d = st.columns(2)
+                        with c_i:
+                            ko_win["M74"], _ = render_sim_ko_match("M74", r_grp.get("1E", "1E"), r_grp.get("M74_3", "3ro"))
+                            ko_win["M77"], _ = render_sim_ko_match("M77", r_grp.get("1I", "1I"), r_grp.get("M77_3", "3ro"))
+                            ko_win["M73"], _ = render_sim_ko_match("M73", r_grp.get("2A", "2A"), r_grp.get("2B", "2B"))
+                            ko_win["M75"], _ = render_sim_ko_match("M75", r_grp.get("1F", "1F"), r_grp.get("2C", "2C"))
+                            ko_win["M83"], _ = render_sim_ko_match("M83", r_grp.get("2K", "2K"), r_grp.get("2L", "2L"))
+                            ko_win["M84"], _ = render_sim_ko_match("M84", r_grp.get("1H", "1H"), r_grp.get("2J", "2J"))
+                            ko_win["M81"], _ = render_sim_ko_match("M81", r_grp.get("1D", "1D"), r_grp.get("M81_3", "3ro"))
+                            ko_win["M82"], _ = render_sim_ko_match("M82", r_grp.get("1G", "1G"), r_grp.get("M82_3", "3ro"))
+                        with c_d:
+                            ko_win["M76"], _ = render_sim_ko_match("M76", r_grp.get("1C", "1C"), r_grp.get("2F", "2F"))
+                            ko_win["M78"], _ = render_sim_ko_match("M78", r_grp.get("2E", "2E"), r_grp.get("2I", "2I"))
+                            ko_win["M79"], _ = render_sim_ko_match("M79", r_grp.get("1A", "1A"), r_grp.get("M79_3", "3ro"))
+                            ko_win["M80"], _ = render_sim_ko_match("M80", r_grp.get("1L", "1L"), r_grp.get("M80_3", "3ro"))
+                            ko_win["M86"], _ = render_sim_ko_match("M86", r_grp.get("1J", "1J"), r_grp.get("2H", "2H"))
+                            ko_win["M88"], _ = render_sim_ko_match("M88", r_grp.get("2D", "2D"), r_grp.get("2G", "2G"))
+                            ko_win["M85"], _ = render_sim_ko_match("M85", r_grp.get("1B", "1B"), r_grp.get("M85_3", "3ro"))
+                            ko_win["M87"], _ = render_sim_ko_match("M87", r_grp.get("1K", "1K"), r_grp.get("M87_3", "3ro"))
+
+                    # 8VOS
+                    with tab_8:
+                        c_i, c_d = st.columns(2)
+                        with c_i:
+                            ko_win["M89"], _ = render_sim_ko_match("M89", ko_win["M74"], ko_win["M77"])
+                            ko_win["M90"], _ = render_sim_ko_match("M90", ko_win["M73"], ko_win["M75"])
+                            ko_win["M93"], _ = render_sim_ko_match("M93", ko_win["M83"], ko_win["M84"])
+                            ko_win["M94"], _ = render_sim_ko_match("M94", ko_win["M81"], ko_win["M82"])
+                        with c_d:
+                            ko_win["M91"], _ = render_sim_ko_match("M91", ko_win["M76"], ko_win["M78"])
+                            ko_win["M92"], _ = render_sim_ko_match("M92", ko_win["M79"], ko_win["M80"])
+                            ko_win["M95"], _ = render_sim_ko_match("M95", ko_win["M86"], ko_win["M88"])
+                            ko_win["M96"], _ = render_sim_ko_match("M96", ko_win["M85"], ko_win["M87"])
+
+                    # 4TOS
+                    with tab_4:
+                        c_i, c_d = st.columns(2)
+                        with c_i:
+                            ko_win["M97"], _ = render_sim_ko_match("M97", ko_win["M89"], ko_win["M90"])
+                            ko_win["M98"], _ = render_sim_ko_match("M98", ko_win["M93"], ko_win["M94"])
+                        with c_d:
+                            ko_win["M99"], _ = render_sim_ko_match("M99", ko_win["M91"], ko_win["M92"])
+                            ko_win["M100"], _ = render_sim_ko_match("M100", ko_win["M95"], ko_win["M96"])
+
+                    # SEMIS
+                    with tab_semi:
+                        c_i, c_d = st.columns(2)
+                        with c_i:
+                            ko_win["M101"], ko_lose["M101"] = render_sim_ko_match("M101", ko_win["M97"], ko_win["M98"])
+                        with c_d:
+                            ko_win["M102"], ko_lose["M102"] = render_sim_ko_match("M102", ko_win["M99"], ko_win["M100"])
+
+                    # FINAL Y 3ER PUESTO
+                    with tab_fin:
+                        c_i, c_d = st.columns(2)
+                        with c_i:
+                            st.markdown("#### 🥉 3er Puesto")
+                            render_sim_ko_match("M103", ko_lose.get("M101", "L101"), ko_lose.get("M102", "L102"))
+                        with c_d:
+                            st.markdown("#### 🏆 Gran Final")
+                            render_sim_ko_match("M104", ko_win.get("M101", "W101"), ko_win.get("M102", "W102"))
 
     # --- 5. SEDES Y EQUIPOS ---
     elif menu == t["nav_stadiums"]:
