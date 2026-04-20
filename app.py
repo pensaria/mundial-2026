@@ -511,6 +511,7 @@ if st.session_state.connected:
                 base_fp = 0 if st.session_state.get('sim_fp_override', False) else s_dict[eq]['FP_Base']
                 s_dict[eq]['FP'] = base_fp + st.session_state.sim_fp_dict.get(eq, 0)
 
+            # CASCADA LINEAL FIFA OFICIAL:
             def fifa_sort_key(e):
                 empatados = [x for x in s_dict.values() if x['Grupo'] == e['Grupo'] and x['PTS'] == e['PTS']]
                 h2h_pts, h2h_dg, h2h_gf = 0, 0, 0
@@ -520,6 +521,7 @@ if st.session_state.connected:
                     h2h_pts = sum(m['pts'] for m in h2h_matches)
                     h2h_dg = sum(m['gf'] - m['gc'] for m in h2h_matches)
                     h2h_gf = sum(m['gf'] for m in h2h_matches)
+                # Orden estricto: Pts > H2H_Pts > H2H_DG > H2H_GF > DG > GF > FP > Rank
                 return (-e['PTS'], -h2h_pts, -h2h_dg, -h2h_gf, -e['DG'], -e['GF'], -e['FP'], e['Rank'])
 
             df_global = pd.DataFrame(sorted(s_dict.values(), key=fifa_sort_key))
