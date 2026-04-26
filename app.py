@@ -120,7 +120,7 @@ def generar_ticket_especiales(username, camp, sub, ter, sorp, decep):
 
     c, s, t, so, de = [x if x else "No elegido" for x in (camp, sub, ter, sorp, decep)]
     
-    d.text((150, 30), "TICKET APUESTAS ESPECIALES 2026", fill=(0, 0, 0), font=fnt_title)
+    d.text((120, 30), "TICKET APUESTAS ESPECIALES 2026", fill=(0, 0, 0), font=fnt_title)
     d.text((40, 80), f"👤 Jugador: {username}", fill=(0, 0, 0), font=fnt_text)
     d.text((40, 130), f"🏆 Campeón (10pts): {c}", fill=(0, 0, 0), font=fnt_text)
     d.text((40, 170), f"🥈 Subcampeón (8pts): {s}", fill=(0, 0, 0), font=fnt_text)
@@ -320,6 +320,7 @@ if st.session_state.connected:
                 for p in partidos_data:
                     eq_l = p['Local_ES'] if lang == "Español" else p['Local_EN']
                     eq_v = p['Visitante_ES'] if lang == "Español" else p['Visitante_EN']
+                    # Filtramos nulos o vacíos para que sorted() no explote
                     if eq_l and str(eq_l).strip() != "" and str(eq_l) != "None": dict_equipos[eq_l] = p['Rank_L']
                     if eq_v and str(eq_v).strip() != "" and str(eq_v) != "None": dict_equipos[eq_v] = p['Rank_V']
                 
@@ -641,7 +642,7 @@ if st.session_state.connected:
                     st.caption("M104")
                     st.markdown(f"**W101** vs **W102**")
 
-    # --- 4. SIMULADOR (MANTENIDO INTACTO) ---
+    # --- 4. SIMULADOR ---
     elif menu == t["nav_sim"]:
         st.subheader(t["nav_sim"])
 
