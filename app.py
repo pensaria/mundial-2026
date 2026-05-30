@@ -243,7 +243,7 @@ def render_html_table(df, styler_func=None):
     .custom-tbl tr:hover { background-color: rgba(0,0,0,0.01); }
     </style>
     """
-    st.markdown(f'<div class="custom-tbl">{html}</div>', unsafe_allow_html=True)
+    st.markdown(f'{css}<div class="custom-tbl">{html}</div>', unsafe_allow_html=True)
 
 def asignar_terceros(grupos_terceros):
     permitidos = {
@@ -499,20 +499,11 @@ if st.session_state.connected:
                 flag_l_img = f"<img src='{p['Bandera_L']}' style='width: 24px; height: 16px; object-fit: cover; border-radius: 2px;'>" if p['Bandera_L'] else ""
                 flag_v_img = f"<img src='{p['Bandera_V']}' style='width: 24px; height: 16px; object-fit: cover; border-radius: 2px;'>" if p['Bandera_V'] else ""
 
-                html_card = f"""
-                <div style='background-color: {bg_color}; border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 10px;'>
-                    <div style='font-size: 16px; font-weight: bold; display: flex; align-items: center; gap: 8px;'>
-                        {flag_l_img} <span>{eq_l} &nbsp;&nbsp;{pl} - {pv}&nbsp;&nbsp; {eq_v}</span> {flag_v_img} 
-                        <span style='color: gray; font-size:12px; font-weight: normal; margin-left:10px;'>(Tu pronóstico)</span>
-                    </div>
-                """
+                html_card = f"<div style='background-color: {bg_color}; border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 10px;'>"
+                html_card += f"<div style='font-size: 16px; font-weight: bold; display: flex; align-items: center; gap: 8px;'>{flag_l_img} <span>{eq_l} &nbsp;&nbsp;{pl} - {pv}&nbsp;&nbsp; {eq_v}</span> {flag_v_img} <span style='color: gray; font-size:12px; font-weight: normal; margin-left:10px;'>(Tu pronóstico)</span></div>"
+                
                 if rl is not None and rv is not None:
-                    html_card += f"""
-                    <div style='font-size: 14px; margin-top:8px; display: flex; align-items: center; gap: 8px;'>
-                        {flag_l_img} <span>{eq_l} &nbsp;&nbsp;{rl} - {rv}&nbsp;&nbsp; {eq_v}</span> {flag_v_img} 
-                        <span style='color: gray; font-size:12px; margin-left:10px;'>(Realidad)</span>
-                    </div>
-                    """
+                    html_card += f"<div style='font-size: 14px; margin-top:8px; display: flex; align-items: center; gap: 8px;'>{flag_l_img} <span>{eq_l} &nbsp;&nbsp;{rl} - {rv}&nbsp;&nbsp; {eq_v}</span> {flag_v_img} <span style='color: gray; font-size:12px; margin-left:10px;'>(Realidad)</span></div>"
                     html_card += f"<div style='margin-top: 8px; font-weight: bold; color: {'#27ae60' if puntos_obtenidos > 0 else '#e74c3c'};'>✅ Puntos Obtenidos: {puntos_obtenidos}</div>"
                 else:
                     html_card += f"<div style='font-size: 14px; color: gray; margin-top:5px;'>Partido aún no disputado</div>"
@@ -553,11 +544,15 @@ if st.session_state.connected:
         grupos = sorted(list(set([s['Grupo'] for s in stats.values()])))
         tablas_finales = {}
         
-        for g in grupos:
-            st.write(f"### GRUPO {g}")
-            df_g = pd.DataFrame([s for s in stats.values() if s['Grupo'] == g]).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
-            tablas_finales[g] = df_g
-            render_html_table(df_g[['Flag', 'Equipo', 'PJ', 'PTS', 'DG', 'GF', 'GC', 'FP']])
+        filas_grupos_res = [grupos[i:i + 3] for i in range(0, len(grupos), 3)]
+        for fila in filas_grupos_res:
+            cols_res = st.columns(3)
+            for i, g in enumerate(fila):
+                with cols_res[i]:
+                    st.write(f"### GRUPO {g}")
+                    df_g = pd.DataFrame([s for s in stats.values() if s['Grupo'] == g]).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
+                    tablas_finales[g] = df_g
+                    render_html_table(df_g[['Flag', 'Equipo', 'PJ', 'PTS', 'DG', 'GF', 'GC', 'FP']])
 
         st.divider()
         st.subheader("🥉 Mejores Terceros / Best Third-Placed Teams")
