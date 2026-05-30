@@ -434,11 +434,15 @@ if st.session_state.connected:
         st.subheader(t["nav_my_preds"])
         preds = obtener_predicciones_usuario(st.session_state.user_email)
         
-        jornadas_disponibles = sorted(list(set([p.get('Jornada_ES' if lang=="Español" else 'Jornada_EN') for p in partidos_data if p.get('Jornada_ES' if lang=="Español" else 'Jornada_EN')])))
-        j_filtro = st.selectbox("Filtrar por Jornada:", ["Todas"] + jornadas_disponibles)
+        jornadas_fijas_es = ["Fecha 1", "Fecha 2", "Fecha 3", "16vos de final", "8vos de final", "4tos de final", "Semifinales", "Final y 3er puesto"]
+        jornadas_fijas_en = ["Matchday 1", "Matchday 2", "Matchday 3", "Round of 32", "Round of 16", "Quarter-finals", "Semi-finals", "Final & 3rd place"]
+        jornadas_list = jornadas_fijas_es if lang == "Español" else jornadas_fijas_en
+        
+        txt_todas = "Todas" if lang == "Español" else "All"
+        j_filtro = st.selectbox("Filtrar por Jornada / Filter by Matchday:", [txt_todas] + jornadas_list)
         
         puntos_totales_jornada = 0
-        partidos_filtrados = partidos_data if j_filtro == "Todas" else [p for p in partidos_data if p.get('Jornada_ES' if lang=="Español" else 'Jornada_EN') == j_filtro]
+        partidos_filtrados = partidos_data if j_filtro == txt_todas else [p for p in partidos_data if p.get('Jornada_ES' if lang=="Español" else 'Jornada_EN') == j_filtro]
         
         # Filtramos solo los que el usuario sí predijo
         partidos_con_pred = [p for p in partidos_filtrados if str(p['ID']) in preds]
@@ -747,14 +751,14 @@ if st.session_state.connected:
                             
                             val_l = st.session_state.sim_goles_dict.get(f"sl_{p['ID']}")
                             kwargs_l = {"min_value": 0, "max_value": 20, "key": f"temp_l_{p['ID']}", "label_visibility": "collapsed", "placeholder": "-"}
-                            if val_l is not None: kwargs_l["value"] = val_l
+                            if val_l is not None: kwargs_l["value"] = int(val_l)
                             c2.number_input("L", **kwargs_l)
                             
                             c3.markdown("<div style='text-align:center; padding-top:10px;'>:</div>", unsafe_allow_html=True)
                             
                             val_v = st.session_state.sim_goles_dict.get(f"sv_{p['ID']}")
                             kwargs_v = {"min_value": 0, "max_value": 20, "key": f"temp_v_{p['ID']}", "label_visibility": "collapsed", "placeholder": "-"}
-                            if val_v is not None: kwargs_v["value"] = val_v
+                            if val_v is not None: kwargs_v["value"] = int(val_v)
                             c4.number_input("V", **kwargs_v)
                             
                             with c5: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
@@ -763,21 +767,19 @@ if st.session_state.connected:
                     eq_nombres = sorted(list(set([p['Local_ES'] if lang == "Español" else p['Local_EN'] for p in partidos_grupo] + [p['Visitante_ES'] if lang == "Español" else p['Visitante_EN'] for p in partidos_grupo])))
                     eq_nombres = [eq for eq in eq_nombres if eq]
 
-                    cols_fp = st.columns(4)
-                    for i, eq_name in enumerate(eq_nombres):
-                        with cols_fp[i % 4]:
+                    for eq_name in eq_nombres:
+                        with st.container(border=True):
+                            c_fp1, c_fp2 = st.columns([3, 1])
                             row = df_global[df_global['Equipo'] == eq_name]
-                            if not row.empty:
-                                flag_url = row['Flag'].values[0]
-                                if flag_url:
-                                    st.markdown(f"<div style='display:flex; align-items:center; gap:5px;'><img src='{flag_url}' width='20'> <small>{eq_name}</small></div>", unsafe_allow_html=True)
-                                else:
-                                    st.markdown(f"<small>{eq_name}</small>", unsafe_allow_html=True)
-
+                            flag_url = row['Flag'].values[0] if not row.empty else ""
+                            with c_fp1:
+                                st.markdown(f"<div style='display:flex; align-items:center; gap:10px;'><img src='{flag_url}' style='width: 30px; height: 20px; object-fit: cover; border-radius: 3px;'><b>{eq_name}</b></div>", unsafe_allow_html=True)
+                            
                             val_fp = st.session_state.sim_fp_dict.get(eq_name, 0)
-                            kwargs_fp = {"min_value": -99, "max_value": 0, "key": f"temp_fp_{eq_name}", "label_visibility": "collapsed"}
-                            if val_fp is not None: kwargs_fp["value"] = val_fp
-                            st.number_input("FP", **kwargs_fp)
+                            val_seguro = min(0, int(val_fp))
+                            
+                            with c_fp2:
+                                st.number_input("FP", min_value=-99, max_value=0, value=val_seguro, key=f"temp_fp_{eq_name}", label_visibility="collapsed")
                     
                     submit_btn = st.form_submit_button("⚽ Simular Grupo!", type="primary", use_container_width=True)
                     if submit_btn:
@@ -785,7 +787,7 @@ if st.session_state.connected:
                             st.session_state.sim_goles_dict[f"sl_{p['ID']}"] = st.session_state[f"temp_l_{p['ID']}"]
                             st.session_state.sim_goles_dict[f"sv_{p['ID']}"] = st.session_state[f"temp_v_{p['ID']}"]
                         for eq_name in eq_nombres:
-                            st.session_state.sim_fp_dict[eq_name] = st.session_state[f"temp_fp_{eq_name}"]
+                            st.session_state.sim_fp_dict[eq_name] = min(0, int(st.session_state[f"temp_fp_{eq_name}"]))
                         st.rerun()
 
             with col_der:
