@@ -218,7 +218,7 @@ def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
         return f'<div style="display: flex; align-items: center; justify-content: {"flex-start" if align=="left" else "flex-end"}; flex-direction: {flex}; gap: 10px;"><span>{nombre}</span></div>'
     return f'<div style="display: flex; align-items: center; justify-content: {"flex-start" if align=="left" else "flex-end"}; flex-direction: {flex}; gap: 10px;"><img src="{url_bandera}" style="width: 30px; height: 20px; object-fit: cover; border-radius: 3px;"><span>{nombre}</span></div>'
 
-# --- NUEVA FUNCIÓN PARA TABLAS SIN DEFORMAR BANDERAS ---
+# --- NUEVA FUNCIÓN PARA TABLAS SIN DEFORMAR BANDERAS CORREGIDA ---
 def render_html_table(df, styler_func=None):
     df_fmt = df.copy()
     if 'Flag' in df_fmt.columns:
@@ -235,15 +235,12 @@ def render_html_table(df, styler_func=None):
         
     html = styler.to_html(escape=False)
     
-    css = """
-    <style>
-    .custom-tbl table { width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; margin-bottom: 1rem; }
-    .custom-tbl th { text-align: center !important; padding: 8px; border-bottom: 2px solid #ddd; background-color: rgba(0,0,0,0.02); }
-    .custom-tbl td { text-align: center !important; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: middle; }
-    .custom-tbl tr:hover { background-color: rgba(0,0,0,0.01); }
-    </style>
-    """
-    st.markdown(f'{css}<div class="custom-tbl">{html}</div>', unsafe_allow_html=True)
+    # SOLUCIÓN DEL ERROR VISUAL: Eliminamos saltos de línea para evitar que Streamlit lo lea como un bloque de código
+    html = html.replace('\n', '')
+    
+    css = "<style>.custom-tbl table { width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; margin-bottom: 1rem; } .custom-tbl th { text-align: center !important; padding: 8px; border-bottom: 2px solid #ddd; background-color: rgba(0,0,0,0.02); } .custom-tbl td { text-align: center !important; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: middle; } .custom-tbl tr:hover { background-color: rgba(0,0,0,0.01); }</style>"
+    
+    st.markdown(f'<div class="custom-tbl">{css}{html}</div>', unsafe_allow_html=True)
 
 def asignar_terceros(grupos_terceros):
     permitidos = {
