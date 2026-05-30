@@ -340,6 +340,16 @@ if st.session_state.connected:
             
             # --- APUESTAS ESPECIALES ---
             with st.expander(t["special_bets"], expanded=False):
+                # Verificación de bloqueo por tiempo para apuestas especiales
+                zona_sofia = ZoneInfo("Europe/Sofia")
+                ahora = datetime.now(zona_sofia)
+                limite_especiales = FECHAS_LIMITE.get("Fecha 1" if lang == "Español" else "Matchday 1")
+                bloqueado_especiales = False
+                
+                if limite_especiales and ahora > limite_especiales:
+                    bloqueado_especiales = True
+                    st.error("🔒 " + ("El torneo ha comenzado. Las apuestas especiales están bloqueadas." if lang == "Español" else "The tournament has started. Special bets are locked."))
+
                 dict_equipos = {}
                 for p in partidos_data:
                     eq_l = p['Local_ES'] if lang == "Español" else p['Local_EN']
@@ -357,13 +367,13 @@ if st.session_state.connected:
                 def get_idx(lst, val): return lst.index(val) if val in lst else 0
                 
                 c1, c2, c3 = st.columns(3)
-                val_camp = c1.selectbox(t["champion"], lista_todos, index=get_idx(lista_todos, perfil_actual['equipo_campeon']))
-                val_sub = c2.selectbox(t["runner_up"], lista_todos, index=get_idx(lista_todos, perfil_actual['equipo_subcampeon']))
-                val_ter = c3.selectbox(t["third_place"], lista_todos, index=get_idx(lista_todos, perfil_actual['equipo_tercero']))
+                val_camp = c1.selectbox(t["champion"], lista_todos, index=get_idx(lista_todos, perfil_actual['equipo_campeon']), disabled=bloqueado_especiales)
+                val_sub = c2.selectbox(t["runner_up"], lista_todos, index=get_idx(lista_todos, perfil_actual['equipo_subcampeon']), disabled=bloqueado_especiales)
+                val_ter = c3.selectbox(t["third_place"], lista_todos, index=get_idx(lista_todos, perfil_actual['equipo_tercero']), disabled=bloqueado_especiales)
                 
                 c4, c5 = st.columns(2)
-                val_sorp = c4.selectbox(t["surprise"], lista_sorpresa, index=get_idx(lista_sorpresa, perfil_actual['equipo_sorpresa']))
-                val_dec = c5.selectbox(t["disappointment"], lista_decepcion, index=get_idx(lista_decepcion, perfil_actual['equipo_decepcion']))
+                val_sorp = c4.selectbox(t["surprise"], lista_sorpresa, index=get_idx(lista_sorpresa, perfil_actual['equipo_sorpresa']), disabled=bloqueado_especiales)
+                val_dec = c5.selectbox(t["disappointment"], lista_decepcion, index=get_idx(lista_decepcion, perfil_actual['equipo_decepcion']), disabled=bloqueado_especiales)
                 
                 top3_seleccionados = [x for x in [val_camp, val_sub, val_ter] if x != ""]
                 hay_error_top3 = len(top3_seleccionados) != len(set(top3_seleccionados))
@@ -374,7 +384,7 @@ if st.session_state.connected:
                     st.warning("Este equipo fue elegido para los primeros 3 puestos, ¿estás seguro de tu elección de decepción?" if lang == "Español" else "This team was chosen for the Top 3 spots, are you sure of your choice?")
 
                 col_a1, col_a2 = st.columns([1, 1])
-                if col_a1.button(t["save_special"], disabled=hay_error_top3):
+                if col_a1.button(t["save_special"], disabled=hay_error_top3 or bloqueado_especiales):
                     guardar_apuestas_especiales(st.session_state.user_email, val_camp, val_sub, val_ter, val_sorp, val_dec)
                     st.success("¡Guardado!")
                     st.rerun()
@@ -456,6 +466,22 @@ if st.session_state.connected:
     # --- 2.5 MIS PRONÓSTICOS (NUEVA SECCIÓN INDEPENDIENTE) ---
     elif menu == t["nav_my_preds"]:
         st.subheader(t["nav_my_preds"])
+        
+        # --- APUESTAS ESPECIALES VISIBLES ---
+        st.markdown(f"#### 🌟 {t['special_bets']}")
+        if perfil_actual:
+            c_s1, c_s2, c_s3 = st.columns(3)
+            c_s1.info(f"🏆 **{t['champion']}**\n\n{perfil_actual.get('equipo_campeon') or '-'}")
+            c_s2.info(f"🥈 **{t['runner_up']}**\n\n{perfil_actual.get('equipo_subcampeon') or '-'}")
+            c_s3.info(f"🥉 **{t['third_place']}**\n\n{perfil_actual.get('equipo_tercero') or '-'}")
+            
+            c_s4, c_s5 = st.columns(2)
+            c_s4.success(f"🚀 **{t['surprise']}**\n\n{perfil_actual.get('equipo_sorpresa') or '-'}")
+            c_s5.error(f"📉 **{t['disappointment']}**\n\n{perfil_actual.get('equipo_decepcion') or '-'}")
+            
+        st.divider()
+        st.markdown(f"#### 📅 " + ("Pronósticos por Jornada" if lang == "Español" else "Predictions by Matchday"))
+
         preds = obtener_predicciones_usuario(st.session_state.user_email)
         
         jornadas_fijas_es = ["Fecha 1", "Fecha 2", "Fecha 3", "16vos de final", "8vos de final", "4tos de final", "Semifinales", "Final y 3er puesto"]
