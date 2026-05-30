@@ -218,6 +218,33 @@ def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
         return f'<div style="display: flex; align-items: center; justify-content: {"flex-start" if align=="left" else "flex-end"}; flex-direction: {flex}; gap: 10px;"><span>{nombre}</span></div>'
     return f'<div style="display: flex; align-items: center; justify-content: {"flex-start" if align=="left" else "flex-end"}; flex-direction: {flex}; gap: 10px;"><img src="{url_bandera}" style="width: 30px; height: 20px; object-fit: cover; border-radius: 3px;"><span>{nombre}</span></div>'
 
+# --- NUEVA FUNCIÓN PARA TABLAS SIN DEFORMAR BANDERAS ---
+def render_html_table(df, styler_func=None):
+    df_fmt = df.copy()
+    if 'Flag' in df_fmt.columns:
+        df_fmt['Flag'] = df_fmt['Flag'].apply(lambda x: f'<img src="{x}" style="width:30px; height:20px; object-fit:cover; border-radius:3px;">' if pd.notna(x) and x else '')
+    
+    styler = df_fmt.style
+    if styler_func:
+        styler = styler.apply(styler_func, axis=1)
+    
+    try:
+        styler = styler.hide(axis="index")
+    except:
+        styler = styler.hide_index()
+        
+    html = styler.to_html(escape=False)
+    
+    css = """
+    <style>
+    .custom-tbl table { width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; margin-bottom: 1rem; }
+    .custom-tbl th { text-align: center !important; padding: 8px; border-bottom: 2px solid #ddd; background-color: rgba(0,0,0,0.02); }
+    .custom-tbl td { text-align: center !important; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: middle; }
+    .custom-tbl tr:hover { background-color: rgba(0,0,0,0.01); }
+    </style>
+    """
+    st.markdown(f'<div class="custom-tbl">{html}</div>', unsafe_allow_html=True)
+
 def asignar_terceros(grupos_terceros):
     permitidos = {
         'R1': ['C', 'E', 'F', 'H', 'I'], 'R2': ['E', 'F', 'G', 'I', 'J'],
@@ -469,12 +496,23 @@ if st.session_state.connected:
                 
                 puntos_totales_jornada += puntos_obtenidos
                 
+                flag_l_img = f"<img src='{p['Bandera_L']}' style='width: 24px; height: 16px; object-fit: cover; border-radius: 2px;'>" if p['Bandera_L'] else ""
+                flag_v_img = f"<img src='{p['Bandera_V']}' style='width: 24px; height: 16px; object-fit: cover; border-radius: 2px;'>" if p['Bandera_V'] else ""
+
                 html_card = f"""
                 <div style='background-color: {bg_color}; border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 10px;'>
-                    <div style='font-size: 16px; font-weight: bold;'>{eq_l} {pl} - {pv} {eq_v} <span style='color: gray; font-size:12px; font-weight: normal;'>(Tu pronóstico)</span></div>
+                    <div style='font-size: 16px; font-weight: bold; display: flex; align-items: center; gap: 8px;'>
+                        {flag_l_img} <span>{eq_l} &nbsp;&nbsp;{pl} - {pv}&nbsp;&nbsp; {eq_v}</span> {flag_v_img} 
+                        <span style='color: gray; font-size:12px; font-weight: normal; margin-left:10px;'>(Tu pronóstico)</span>
+                    </div>
                 """
                 if rl is not None and rv is not None:
-                    html_card += f"<div style='font-size: 14px; margin-top:5px;'>{eq_l} {rl} - {rv} {eq_v} <span style='color: gray; font-size:12px;'>(Realidad)</span></div>"
+                    html_card += f"""
+                    <div style='font-size: 14px; margin-top:8px; display: flex; align-items: center; gap: 8px;'>
+                        {flag_l_img} <span>{eq_l} &nbsp;&nbsp;{rl} - {rv}&nbsp;&nbsp; {eq_v}</span> {flag_v_img} 
+                        <span style='color: gray; font-size:12px; margin-left:10px;'>(Realidad)</span>
+                    </div>
+                    """
                     html_card += f"<div style='margin-top: 8px; font-weight: bold; color: {'#27ae60' if puntos_obtenidos > 0 else '#e74c3c'};'>✅ Puntos Obtenidos: {puntos_obtenidos}</div>"
                 else:
                     html_card += f"<div style='font-size: 14px; color: gray; margin-top:5px;'>Partido aún no disputado</div>"
@@ -519,7 +557,7 @@ if st.session_state.connected:
             st.write(f"### GRUPO {g}")
             df_g = pd.DataFrame([s for s in stats.values() if s['Grupo'] == g]).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True])
             tablas_finales[g] = df_g
-            st.data_editor(df_g[['Flag', 'Equipo', 'PJ', 'PTS', 'DG', 'GF', 'GC', 'FP']], column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, key=f"res_{g}", use_container_width=True)
+            render_html_table(df_g[['Flag', 'Equipo', 'PJ', 'PTS', 'DG', 'GF', 'GC', 'FP']])
 
         st.divider()
         st.subheader("🥉 Mejores Terceros / Best Third-Placed Teams")
@@ -529,7 +567,7 @@ if st.session_state.connected:
         if terceros:
             df_3 = pd.DataFrame(terceros).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True]).reset_index(drop=True)
             def highlight_3(s): return ['background-color: rgba(46, 204, 113, 0.3)' if s.name < 8 else '' for _ in s]
-            st.data_editor(df_3[['Flag', 'Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'GC', 'FP']].style.apply(highlight_3, axis=1), column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, disabled=True, use_container_width=True)
+            render_html_table(df_3[['Flag', 'Equipo', 'Grupo', 'PTS', 'DG', 'GF', 'GC', 'FP']], styler_func=highlight_3)
 
         st.divider()
         
@@ -793,10 +831,7 @@ if st.session_state.connected:
             with col_der:
                 st.markdown(f"### 📊 Posiciones Grupo {g_sel}")
                 df_g_show = df_global[df_global['Grupo'] == g_sel]
-                st.data_editor(
-                    df_g_show[['Flag', 'Equipo', 'PJ', 'PTS', 'DG', 'GF', 'GC', 'FP']],
-                    column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, use_container_width=True, disabled=True
-                )
+                render_html_table(df_g_show[['Flag', 'Equipo', 'PJ', 'PTS', 'DG', 'GF', 'GC', 'FP']])
 
                 st.markdown("### 🥉 Ranking Mejores Terceros")
                 terceros = []
@@ -807,10 +842,7 @@ if st.session_state.connected:
                 if terceros:
                     df_3 = pd.DataFrame(terceros).sort_values(by=['PTS', 'DG', 'GF', 'FP', 'Rank'], ascending=[False, False, False, False, True]).reset_index(drop=True)
                     def style_3(s): return ['background-color: rgba(46, 204, 113, 0.3)' if s.name < 8 else '' for _ in s]
-                    st.data_editor(
-                        df_3[['Flag', 'Equipo', 'Grupo', 'PJ', 'PTS', 'DG', 'GF', 'FP']].style.apply(style_3, axis=1),
-                        column_config={"Flag": st.column_config.ImageColumn(" ")}, hide_index=True, use_container_width=True, disabled=True
-                    )
+                    render_html_table(df_3[['Flag', 'Equipo', 'Grupo', 'PJ', 'PTS', 'DG', 'GF', 'FP']], styler_func=style_3)
 
             st.divider()
             with st.expander("🌍 Ver Cuadro Completo (Todos los Grupos)", expanded=False):
@@ -821,7 +853,7 @@ if st.session_state.connected:
                         with cols[i]:
                             st.markdown(f"**Grupo {g_id}**")
                             df_mini = df_global[df_global['Grupo'] == g_id][['Flag', 'Equipo', 'PTS', 'DG']]
-                            st.dataframe(df_mini, column_config={"Flag": st.column_config.ImageColumn("")}, hide_index=True, use_container_width=True)
+                            render_html_table(df_mini)
 
             st.divider()
             if st.button("🏆 Generar Cuadro Final", type="primary", use_container_width=True):
