@@ -109,32 +109,44 @@ def obtener_partidos_airtable():
         url = f"https://api.airtable.com/v0/{st.secrets['airtable']['base_id']}/Partidos"
         headers = {"Authorization": f"Bearer {st.secrets['airtable']['api_key']}"}
         params = {"view": "Grid view", "sort[0][field]": "ID Partido", "sort[0][direction]": "asc"} 
-        response = requests.get(url, headers=headers, params=params)
-        if response.status_code == 200:
-            partidos = []
-            for record in response.json()['records']:
-                f = record['fields']
-                g_raw = f.get("Grupo")
-                grupo_real = str(g_raw[0]).strip() if isinstance(g_raw, list) and g_raw else (str(g_raw).strip() if g_raw else "Definir")
-                r_l = f.get("Ranking FIFA (from Equipo Local)"); r_v = f.get("Ranking FIFA (from Equipo Visitante)")
-                partidos.append({
-                    "ID": f.get("ID Partido"), "Grupo": grupo_real, "Etapa": f.get("Etapa"),
-                    "Local_ES": f.get("Nombre (from Equipo Local)")[0] if isinstance(f.get("Nombre (from Equipo Local)"), list) else f.get("Nombre (from Equipo Local)"),
-                    "Local_EN": f.get("Nombre EN (from Equipo Local)")[0] if f.get("Nombre EN (from Equipo Local)") else f.get("Nombre (from Equipo Local)"),
-                    "Visitante_ES": f.get("Nombre (from Equipo Visitante)")[0] if isinstance(f.get("Nombre (from Equipo Visitante)"), list) else f.get("Nombre (from Equipo Visitante)"),
-                    "Visitante_EN": f.get("Nombre EN (from Equipo Visitante)")[0] if f.get("Nombre EN (from Equipo Visitante)") else f.get("Nombre (from Equipo Visitante)"),
-                    "Bandera_L": f.get("Bandera L")[0].get("url") if f.get("Bandera L") else "",
-                    "Bandera_V": f.get("Bandera V")[0].get("url") if f.get("Bandera V") else "",
-                    "Rank_L": int(r_l[0]) if isinstance(r_l, list) else int(r_l or 100),
-                    "Rank_V": int(r_v[0]) if isinstance(r_v, list) else int(r_v or 100),
-                    "FP_L": f.get("Fair Play L", 0), "FP_V": f.get("Fair Play V", 0),
-                    "Goles Real L": f.get("Goles Local"), "Goles Real V": f.get("Goles Visitante"),
-                    "Penales Real L": f.get("Penales Real L"), "Penales Real V": f.get("Penales Real V"),
-                    "Fecha_Hora": f.get("Fecha y Hora"), 
-                    "Jornada_ES": f.get("Jornada"), "Jornada_EN": f.get("Jornada EN")
-                })
-            return partidos
-        return []
+        partidos = []
+        
+        # BUCLE PARA OBTENER MÁS DE 100 REGISTROS (PAGINACIÓN AIRTABLE)
+        while True:
+            response = requests.get(url, headers=headers, params=params)
+            if response.status_code == 200:
+                data = response.json()
+                for record in data['records']:
+                    f = record['fields']
+                    g_raw = f.get("Grupo")
+                    grupo_real = str(g_raw[0]).strip() if isinstance(g_raw, list) and g_raw else (str(g_raw).strip() if g_raw else "Definir")
+                    r_l = f.get("Ranking FIFA (from Equipo Local)"); r_v = f.get("Ranking FIFA (from Equipo Visitante)")
+                    partidos.append({
+                        "ID": f.get("ID Partido"), "Grupo": grupo_real, "Etapa": f.get("Etapa"),
+                        "Local_ES": f.get("Nombre (from Equipo Local)")[0] if isinstance(f.get("Nombre (from Equipo Local)"), list) else f.get("Nombre (from Equipo Local)"),
+                        "Local_EN": f.get("Nombre EN (from Equipo Local)")[0] if f.get("Nombre EN (from Equipo Local)") else f.get("Nombre (from Equipo Local)"),
+                        "Visitante_ES": f.get("Nombre (from Equipo Visitante)")[0] if isinstance(f.get("Nombre (from Equipo Visitante)"), list) else f.get("Nombre (from Equipo Visitante)"),
+                        "Visitante_EN": f.get("Nombre EN (from Equipo Visitante)")[0] if f.get("Nombre EN (from Equipo Visitante)") else f.get("Nombre (from Equipo Visitante)"),
+                        "Bandera_L": f.get("Bandera L")[0].get("url") if f.get("Bandera L") else "",
+                        "Bandera_V": f.get("Bandera V")[0].get("url") if f.get("Bandera V") else "",
+                        "Rank_L": int(r_l[0]) if isinstance(r_l, list) else int(r_l or 100),
+                        "Rank_V": int(r_v[0]) if isinstance(r_v, list) else int(r_v or 100),
+                        "FP_L": f.get("Fair Play L", 0), "FP_V": f.get("Fair Play V", 0),
+                        "Goles Real L": f.get("Goles Local"), "Goles Real V": f.get("Goles Visitante"),
+                        "Penales Real L": f.get("Penales Real L"), "Penales Real V": f.get("Penales Real V"),
+                        "Fecha_Hora": f.get("Fecha y Hora"), 
+                        "Jornada_ES": f.get("Jornada"), "Jornada_EN": f.get("Jornada EN")
+                    })
+                
+                # Si hay más registros, Airtable devuelve un offset para la siguiente página
+                if 'offset' in data:
+                    params['offset'] = data['offset']
+                else:
+                    break # Salimos del bucle si ya no hay más páginas
+            else:
+                break
+                
+        return partidos
     except Exception as e:
         st.error(f"Error Airtable: {e}"); return []
 
@@ -1224,7 +1236,7 @@ if st.session_state.connected and st.session_state.user_email:
             #### 6️⃣ Aviso Importante y Contacto
             **Aviso Legal:** La participación en la modalidad de pozo es **100% opcional y voluntaria**. No existe ninguna obligación financiera para usar esta aplicación; puedes jugar totalmente gratis solo por diversión y honor.
             
-            📩 **Contacto del Administrador:** Si decides participar por el pozo de dinero, comunícate con el administrador a través de: **adminprode2026@gmail.com** para coordinar el pago y que tu usuario sea habilitado en la tabla exclusiva.
+            📩 **Contacto del Administrador:** Si decides participar por el pozo de dinero, comunícate con el administrador a través de: **[PON TU CORREO O WHATSAPP AQUÍ]** para coordinar el pago y que tu usuario sea habilitado en la tabla exclusiva.
             """)
         else:
             st.markdown("""
@@ -1294,7 +1306,7 @@ if st.session_state.connected and st.session_state.user_email:
             #### 6️⃣ Important Notice and Contact
             **Disclaimer:** Participation in the prize pool mode is **100% optional and voluntary**. There is no financial obligation to use this app; you can play completely for free just for fun and glory.
             
-            📩 **Admin Contact:** If you decide to participate for the money prize pool, please contact the administrator via: **adminprode2026@gmail.com** to arrange payment and have your user enabled on the exclusive leaderboard.
+            📩 **Admin Contact:** If you decide to participate for the money prize pool, please contact the administrator via: **[PUT YOUR EMAIL OR WHATSAPP HERE]** to arrange payment and have your user enabled on the exclusive leaderboard.
             """)
 
     # --- 6. SEDES Y EQUIPOS ---
