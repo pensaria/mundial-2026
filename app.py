@@ -86,6 +86,10 @@ def obtener_perfil(email):
 def crear_perfil(email, username):
     supabase.table("perfiles").insert({"email": email, "nombre_usuario": username}).execute()
 
+def verificar_nickname_existente(username):
+    res = supabase.table("perfiles").select("nombre_usuario").eq("nombre_usuario", username).execute()
+    return len(res.data) > 0
+
 def guardar_apuestas_especiales(email, camp, sub, ter, sorp, decep):
     supabase.table("perfiles").update({
         "equipo_campeon": camp, "equipo_subcampeon": sub, 
@@ -198,9 +202,10 @@ def guardar_prediccion_supabase(user, partido_id, gl, gv):
     supabase.table("predicciones").upsert({"usuario": user, "partido_id": str(partido_id), "goles_local": gl, "goles_visitante": gv}, on_conflict="usuario, partido_id").execute()
 
 def obtener_ranking_global(partidos):
-    res = supabase.table("predicciones").select("*").execute()
+    # 1. Traemos las predicciones
+    res_preds = supabase.table("predicciones").select("*").execute()
     puntos = {}
-    for p in res.data:
+    for p in res_preds.data:
         user = p['usuario']
         if user not in puntos: puntos[user] = 0
         m = next((m for m in partidos if str(m['ID']) == p['partido_id']), None)
@@ -208,7 +213,18 @@ def obtener_ranking_global(partidos):
             rl, rv, pl, pv = m['Goles Real L'], m['Goles Real V'], p['goles_local'], p['goles_visitante']
             if rl == pl and rv == pv: puntos[user] += 4
             elif (rl > rv and pl > pv) or (rl < rv and pl < pv) or (rl == rv and pl == pv): puntos[user] += 2
-    return sorted([{"Usuario": k, "Puntos": v} for k, v in puntos.items()], key=lambda x: x['Puntos'], reverse=True)
+            
+    # 2. Traemos los perfiles para mapear Correo -> Nickname
+    res_perfiles = supabase.table("perfiles").select("email, nombre_usuario").execute()
+    mapa_nombres = {r['email']: r['nombre_usuario'] for r in res_perfiles.data}
+    
+    # 3. Construimos el ranking usando el Nickname (o el correo si no tiene)
+    lista_ranking = []
+    for k, v in puntos.items():
+        nombre_visible = mapa_nombres.get(k, k)
+        lista_ranking.append({"Usuario": nombre_visible, "Puntos": v})
+        
+    return sorted(lista_ranking, key=lambda x: x['Puntos'], reverse=True)
 
 def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
     nombre = nombre_es if lang_choice == "Español" else (nombre_en or nombre_es)
@@ -218,7 +234,7 @@ def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
         return f'<div style="display: flex; align-items: center; justify-content: {"flex-start" if align=="left" else "flex-end"}; flex-direction: {flex}; gap: 10px;"><span>{nombre}</span></div>'
     return f'<div style="display: flex; align-items: center; justify-content: {"flex-start" if align=="left" else "flex-end"}; flex-direction: {flex}; gap: 10px;"><img src="{url_bandera}" style="width: 30px; height: 20px; object-fit: cover; border-radius: 3px;"><span>{nombre}</span></div>'
 
-# --- NUEVA FUNCIÓN PARA TABLAS SIN DEFORMAR BANDERAS CORREGIDA ---
+# --- FUNCIÓN PARA TABLAS SIN DEFORMAR BANDERAS CORREGIDA ---
 def render_html_table(df, styler_func=None):
     df_fmt = df.copy()
     if 'Flag' in df_fmt.columns:
@@ -234,8 +250,6 @@ def render_html_table(df, styler_func=None):
         styler = styler.hide_index()
         
     html = styler.to_html(escape=False)
-    
-    # SOLUCIÓN DEL ERROR VISUAL: Eliminamos saltos de línea para evitar que Streamlit lo lea como un bloque de código
     html = html.replace('\n', '')
     
     css = "<style>.custom-tbl table { width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; margin-bottom: 1rem; } .custom-tbl th { text-align: center !important; padding: 8px; border-bottom: 2px solid #ddd; background-color: rgba(0,0,0,0.02); } .custom-tbl td { text-align: center !important; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: middle; } .custom-tbl tr:hover { background-color: rgba(0,0,0,0.01); }</style>"
@@ -266,11 +280,9 @@ def asignar_terceros(grupos_terceros):
 if "connected" not in st.session_state: st.session_state.connected = False
 if "user_email" not in st.session_state: st.session_state.user_email = None
 
-# Procesamos el código de retorno si Google nos redirige
 if "code" in st.query_params and not st.session_state.connected:
     auth_code = st.query_params["code"]
     try:
-        # Intercambiamos el código de la URL por tokens reales de Google
         token_url = "https://oauth2.googleapis.com/token"
         token_data = {
             "code": auth_code,
@@ -283,13 +295,11 @@ if "code" in st.query_params and not st.session_state.connected:
         access_token = token_res.get("access_token")
         
         if access_token:
-            # Consultamos los datos reales del perfil usando el token obtenido
             user_info = requests.get("https://www.googleapis.com/oauth2/v2/userinfo", headers={"Authorization": f"Bearer {access_token}"}).json()
             email_detectado = user_info.get("email")
             if email_detectado:
                 st.session_state.user_email = email_detectado
                 st.session_state.connected = True
-                # Limpiamos el código de la barra de direcciones para estética
                 st.query_params.clear()
                 st.rerun()
     except Exception as e:
@@ -300,21 +310,23 @@ if st.session_state.connected and st.session_state.user_email:
     t = texts[lang]
     partidos_data = obtener_partidos_airtable()
     
-    # --- FLUJO NICKNAME ---
+    # --- FLUJO NICKNAME CON VERIFICACIÓN DE DUPLICADOS ---
     perfil_actual = obtener_perfil(st.session_state.user_email)
     if not perfil_actual:
         st.warning(t["ask_username"])
-        new_nick = st.text_input("Nickname:", max_chars=15)
+        new_nick = st.text_input("Nickname:", max_chars=15).strip()
         if st.button(t["save_user"]):
             if new_nick:
-                crear_perfil(st.session_state.user_email, new_nick)
-                st.rerun()
+                if verificar_nickname_existente(new_nick):
+                    st.error(f"⚠️ El nickname '{new_nick}' ya está en uso. Por favor, elige otro." if lang == "Español" else f"⚠️ The nickname '{new_nick}' is already taken. Please choose another.")
+                else:
+                    crear_perfil(st.session_state.user_email, new_nick)
+                    st.rerun()
         st.stop()
         
     username_display = perfil_actual['nombre_usuario']
     st.sidebar.write(f"⚽ {t['user_welcome']}**{username_display}**!")
 
-    # Menú principal de navegación
     menu = st.sidebar.radio("Menu", [t["nav_home"], t["nav_play"], t["nav_my_preds"], t["nav_results"], t["nav_sim"], t["nav_stadiums"]])
     
     modo_juego = st.sidebar.radio("Modo / Mode", [t["mode_simple"], t["mode_complex"]])
@@ -334,7 +346,6 @@ if st.session_state.connected and st.session_state.user_email:
             st.subheader(t["ranking_title"])
             ranking = obtener_ranking_global(partidos_data)
             if ranking: 
-                # Agregamos una verificación visual si deseas filtrar
                 df_global_rank = pd.DataFrame(ranking)
                 st.table(df_global_rank)
             else: 
@@ -349,7 +360,7 @@ if st.session_state.connected and st.session_state.user_email:
             for p in partidos_data:
                 if p['Fecha_Hora']:
                     f_dt = datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia)
-                    if f_dt > ahora:
+                    if f_dt > grandma:
                         proximos.append((f_dt, p))
             
             proximos.sort(key=lambda x: x[0])
