@@ -360,7 +360,7 @@ if st.session_state.connected and st.session_state.user_email:
             for p in partidos_data:
                 if p['Fecha_Hora']:
                     f_dt = datetime.strptime(p['Fecha_Hora'], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc).astimezone(zona_sofia)
-                    if f_dt > grandma:
+                    if f_dt > ahora:
                         proximos.append((f_dt, p))
             
             proximos.sort(key=lambda x: x[0])
