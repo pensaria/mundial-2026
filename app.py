@@ -129,6 +129,7 @@ def obtener_partidos_airtable():
                     "Rank_V": int(r_v[0]) if isinstance(r_v, list) else int(r_v or 100),
                     "FP_L": f.get("Fair Play L", 0), "FP_V": f.get("Fair Play V", 0),
                     "Goles Real L": f.get("Goles Local"), "Goles Real V": f.get("Goles Visitante"),
+                    "Penales Real L": f.get("Penales Real L"), "Penales Real V": f.get("Penales Real V"),
                     "Fecha_Hora": f.get("Fecha y Hora"), 
                     "Jornada_ES": f.get("Jornada"), "Jornada_EN": f.get("Jornada EN")
                 })
@@ -147,6 +148,53 @@ def guardar_prediccion_supabase(user, partido_id, gl, gv, avanza=None):
         data["avanza_penales"] = avanza
     supabase.table("predicciones").upsert(data, on_conflict="usuario, partido_id").execute()
 
+def calcular_puntos_partido(pl, pv, rl, rv, avanza_pred, r_pl, r_pv, is_ko, eq_l_es, eq_v_es, eq_l_en, eq_v_en):
+    if rl is None or rv is None: return 0
+    
+    if not is_ko:
+        if rl == pl and rv == pv: return 4
+        if (rl > rv and pl > pv) or (rl < rv and pl < pv) or (rl == rv and pl == pv): return 2
+        return 0
+    
+    # Lógica de Fases Eliminatorias
+    if rl > rv:
+        real_winner = "L"
+        real_inst = "Cancha"
+    elif rl < rv:
+        real_winner = "V"
+        real_inst = "Cancha"
+    else:
+        if r_pl is not None and r_pv is not None:
+            real_winner = "L" if r_pl > r_pv else "V"
+            real_inst = "Penales"
+        else:
+            return 0 # Partido empatado pero sin penales cargados aún
+    
+    if pl > pv:
+        pred_winner = "L"
+        pred_inst = "Cancha"
+    elif pl < pv:
+        pred_winner = "V"
+        pred_inst = "Cancha"
+    else:
+        pred_inst = "Penales"
+        if avanza_pred in [eq_l_es, eq_l_en]:
+            pred_winner = "L"
+        elif avanza_pred in [eq_v_es, eq_v_en]:
+            pred_winner = "V"
+        else:
+            pred_winner = "L" # Resguardo
+
+    pts_clasif = 2 if pred_winner == real_winner else 0
+    pts_marc = 2 if (pl == rl and pv == rv) else 0
+    pts_inst = 1 if pred_inst == real_inst else 0
+    
+    # Regla de Oro
+    if pts_clasif == 0 and pts_marc == 0:
+        pts_inst = 0
+        
+    return pts_clasif + pts_marc + pts_inst
+
 def obtener_ranking_global(partidos):
     res_preds = supabase.table("predicciones").select("*").execute()
     puntos = {}
@@ -154,10 +202,16 @@ def obtener_ranking_global(partidos):
         user = p['usuario']
         if user not in puntos: puntos[user] = 0
         m = next((m for m in partidos if str(m['ID']) == p['partido_id']), None)
-        if m and m['Goles Real L'] is not None:
-            rl, rv, pl, pv = m['Goles Real L'], m['Goles Real V'], p['goles_local'], p['goles_visitante']
-            if rl == pl and rv == pv: puntos[user] += 4
-            elif (rl > rv and pl > pv) or (rl < rv and pl < pv) or (rl == rv and pl == pv): puntos[user] += 2
+        if m:
+            is_ko = m.get('Jornada_ES') in fases_eliminatorias_list or m.get('Jornada_EN') in fases_eliminatorias_list
+            pts = calcular_puntos_partido(
+                p['goles_local'], p['goles_visitante'],
+                m['Goles Real L'], m['Goles Real V'],
+                p.get('avanza_penales'),
+                m.get('Penales Real L'), m.get('Penales Real V'),
+                is_ko, m['Local_ES'], m['Visitante_ES'], m['Local_EN'], m['Visitante_EN']
+            )
+            puntos[user] += pts
             
     try:
         res_perfiles = supabase.table("perfiles").select("email, nombre_usuario, pago_confirmado").execute()
@@ -226,7 +280,6 @@ def generar_ticket_jornada(username, jornada_nombre, predicciones, partidos):
         gl = pred.get('goles_local', '-'); gv = pred.get('goles_visitante', '-')
         texto = f"{eq_l} {gl} - {gv} {eq_v}"
         
-        # 2 Columnas
         col_x = 30 if i % 2 == 0 else 360
         row_y = y_base + (i // 2) * 40
         d.text((col_x, row_y), texto, fill=(20, 20, 20), font=fnt_text)
@@ -578,21 +631,24 @@ if st.session_state.connected and st.session_state.user_email:
                 pred = preds[str(p['ID'])]
                 pl, pv = pred['goles_local'], pred['goles_visitante']
                 rl, rv = p['Goles Real L'], p['Goles Real V']
+                r_pl, r_pv = p.get('Penales Real L'), p.get('Penales Real V')
                 eq_l, eq_v = p['Local_ES'] if lang=="Español" else p['Local_EN'], p['Visitante_ES'] if lang=="Español" else p['Visitante_EN']
                 avanza_pred = pred.get('avanza_penales')
                 
-                puntos_obtenidos = 0
-                bg_color = "rgba(0,0,0,0.02)"
+                is_ko_match = p.get('Jornada_ES') in fases_eliminatorias_list or p.get('Jornada_EN') in fases_eliminatorias_list
                 
-                if rl is not None and rv is not None:
-                    if rl == pl and rv == pv:
-                        puntos_obtenidos = 4
-                        bg_color = "rgba(46, 204, 113, 0.15)"
-                    elif (rl > rv and pl > pv) or (rl < rv and pl < pv) or (rl == rv and pl == pv):
-                        puntos_obtenidos = 2
-                        bg_color = "rgba(241, 196, 15, 0.15)"
+                puntos_obtenidos = calcular_puntos_partido(
+                    pl, pv, rl, rv, avanza_pred, r_pl, r_pv, is_ko_match,
+                    p['Local_ES'], p['Visitante_ES'], p['Local_EN'], p['Visitante_EN']
+                )
                 
                 puntos_totales_jornada += puntos_obtenidos
+                
+                bg_color = "rgba(0,0,0,0.02)"
+                if rl is not None and rv is not None:
+                    if puntos_obtenidos >= 4: bg_color = "rgba(46, 204, 113, 0.15)"
+                    elif puntos_obtenidos > 0: bg_color = "rgba(241, 196, 15, 0.15)"
+                    elif puntos_obtenidos == 0: bg_color = "rgba(231, 76, 60, 0.10)"
                 
                 flag_l_img = f"<img src='{p['Bandera_L']}' style='width: 24px; height: 16px; object-fit: cover; border-radius: 2px;'>" if p['Bandera_L'] else ""
                 flag_v_img = f"<img src='{p['Bandera_V']}' style='width: 24px; height: 16px; object-fit: cover; border-radius: 2px;'>" if p['Bandera_V'] else ""
@@ -600,11 +656,16 @@ if st.session_state.connected and st.session_state.user_email:
                 html_card = f"<div style='background-color: {bg_color}; border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 10px;'>"
                 html_card += f"<div style='font-size: 16px; font-weight: bold; display: flex; align-items: center; gap: 8px; justify-content: center;'>{flag_l_img} <span>{eq_l} &nbsp;&nbsp;{pl} - {pv}&nbsp;&nbsp; {eq_v}</span> {flag_v_img} <span style='color: gray; font-size:12px; font-weight: normal; margin-left:10px;'>(Tu pronóstico)</span></div>"
                 
-                if pl == pv and avanza_pred:
+                if pl == pv and avanza_pred and is_ko_match:
                     html_card += f"<div style='font-size: 13px; color: #e67e22; text-align: center; margin-top: 4px;'><b>Avanza / Advances:</b> {avanza_pred}</div>"
                 
                 if rl is not None and rv is not None:
-                    html_card += f"<div style='font-size: 14px; margin-top:8px; display: flex; align-items: center; gap: 8px; justify-content: center;'>{flag_l_img} <span>{eq_l} &nbsp;&nbsp;{rl} - {rv}&nbsp;&nbsp; {eq_v}</span> {flag_v_img} <span style='color: gray; font-size:12px; margin-left:10px;'>(Realidad)</span></div>"
+                    if r_pl is not None and r_pv is not None and rl == rv:
+                        real_text = f"{eq_l} &nbsp;&nbsp;{rl} ({int(r_pl)}) - ({int(r_pv)}) {rv}&nbsp;&nbsp; {eq_v}"
+                    else:
+                        real_text = f"{eq_l} &nbsp;&nbsp;{rl} - {rv}&nbsp;&nbsp; {eq_v}"
+                        
+                    html_card += f"<div style='font-size: 14px; margin-top:8px; display: flex; align-items: center; gap: 8px; justify-content: center;'>{flag_l_img} <span>{real_text}</span> {flag_v_img} <span style='color: gray; font-size:12px; margin-left:10px;'>(Realidad)</span></div>"
                     html_card += f"<div style='margin-top: 8px; font-weight: bold; text-align: center; color: {'#27ae60' if puntos_obtenidos > 0 else '#e74c3c'};'>✅ Puntos Obtenidos: {puntos_obtenidos}</div>"
                 else:
                     html_card += f"<div style='font-size: 14px; color: gray; margin-top:5px; text-align: center;'>Partido aún no disputado</div>"
@@ -684,8 +745,13 @@ if st.session_state.connected and st.session_state.user_email:
                     c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
                     with c1: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
                     
-                    gl_txt = p['Goles Real L'] if p['Goles Real L'] is not None else "-"
-                    gv_txt = p['Goles Real V'] if p['Goles Real V'] is not None else "-"
+                    r_pl, r_pv = p.get('Penales Real L'), p.get('Penales Real V')
+                    if r_pl is not None and r_pv is not None and p['Goles Real L'] == p['Goles Real V']:
+                        gl_txt = f"{p['Goles Real L']} ({int(r_pl)})"
+                        gv_txt = f"({int(r_pv)}) {p['Goles Real V']}"
+                    else:
+                        gl_txt = p['Goles Real L'] if p['Goles Real L'] is not None else "-"
+                        gv_txt = p['Goles Real V'] if p['Goles Real V'] is not None else "-"
                     
                     c2.markdown(f"<div style='text-align:right; font-size:18px; font-weight:bold;'>{gl_txt}</div>", unsafe_allow_html=True)
                     c3.markdown("<div style='text-align:center; padding-top:2px;'>:</div>", unsafe_allow_html=True)
