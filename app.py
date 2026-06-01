@@ -1109,6 +1109,22 @@ if st.session_state.connected and st.session_state.user_email:
             * **Acierto de Instancia (+1 pt):** Por acertar si el partido se define en cancha (No Penales) o desde los doce pasos (Penales).
             * **⭐ Regla de Oro:** El punto por "Instancia" solo se suma si el jugador ha acertado al menos una de las otras dos categorías (Clasificado o Marcador Exacto). Si falla ambas, suma 0 puntos.
             
+            **Ejemplos Prácticos (Fase Eliminatoria):**
+            * **Escenario A:** El partido termina México 2 - Catar 0 (Sin penales).
+              * Apostaste México 2 - Catar 0: Sumas **5 pts** (2 clasificado + 2 marcador + 1 instancia).
+              * Apostaste México 1 - Catar 0: Sumas **3 pts** (2 clasificado + 1 instancia. Fallas marcador).
+              * Apostaste México 1 - Catar 1 (pero clasifica México): Sumas **2 pts** (Solo clasificado).
+              * Apostaste Catar 2 - México 0: Sumas **0 pts**.
+            * **Escenario B:** El partido termina 1 - 1 y México pasa por penales.
+              * Apostaste 1 - 1 y clasifica México: Sumas **5 pts** (2 clasificado + 2 marcador + 1 instancia).
+              * Apostaste 1 - 1 y clasifica Catar: Sumas **3 pts** (2 marcador + 1 instancia. Fallas clasificado).
+              * Apostaste 0 - 0 y clasifica México: Sumas **3 pts** (2 clasificado + 1 instancia. Fallas marcador).
+              * Apostaste México 2 - 1 (gana sin penales): Sumas **2 pts** (Solo clasificado. No hay instancia porque no pronosticaste penales).
+              * Apostaste 0 - 0 y clasifica Catar: Sumas **0 pts** (Regla de Oro: fallas marcador y clasificado, pierdes el punto de instancia).
+            * **Escenario C:** El partido termina 2 - 2 y Catar pasa por penales.
+              * Apostaste México 1 - 0: Sumas **0 pts**.
+              * Apostaste México 1 - 1 (clasifica México): Sumas **0 pts** (Regla de Oro: fallas marcador y clasificado).
+            
             #### 3️⃣ Apuestas Especiales (Torneo)
             Antes de que comience el primer partido del Mundial, deberás elegir tus apuestas especiales a largo plazo.
             * Acierto exacto del Campeón: **10 puntos.**
@@ -1138,6 +1154,11 @@ if st.session_state.connected and st.session_state.user_email:
             * 🛠️ **Organización:** 10% (Administración y mantenimiento de la plataforma).
             
             *(Usa el interruptor en la Tabla de Posiciones para ver el ranking exclusivo del pozo).*
+            
+            #### 6️⃣ Aviso Importante y Contacto
+            **Aviso Legal:** La participación en la modalidad de pozo es **100% opcional y voluntaria**. No existe ninguna obligación financiera para usar esta aplicación; puedes jugar totalmente gratis solo por diversión y honor.
+            
+            📩 **Contacto del Administrador:** Si decides participar por el pozo de dinero, comunícate con el administrador a través de: **[PON TU CORREO O WHATSAPP AQUÍ]** para coordinar el pago y que tu usuario sea habilitado en la tabla exclusiva.
             """)
         else:
             st.markdown("""
@@ -1157,6 +1178,22 @@ if st.session_state.connected and st.session_state.user_email:
             * **Exact Score (+2 pts):** Guess the exact goals of each team at the end of playtime (90' or 120').
             * **Instance (+1 pt):** Guess if the match is decided on the pitch (No Penalties) or by shootout (Penalties).
             * **⭐ Golden Rule:** The "Instance" point is only awarded if you also guessed the Qualifier OR the Exact Score correctly. If you fail both, you get 0 points.
+            
+            **Practical Examples (Knockout Phase):**
+            * **Scenario A:** The match ends Mexico 2 - Qatar 0 (No penalties).
+              * You predicted Mexico 2 - Qatar 0: You get **5 pts** (2 qualified + 2 score + 1 instance).
+              * You predicted Mexico 1 - Qatar 0: You get **3 pts** (2 qualified + 1 instance. Failed score).
+              * You predicted Mexico 1 - Qatar 1 (but Mexico advances): You get **2 pts** (Qualified only).
+              * You predicted Qatar 2 - Mexico 0: You get **0 pts**.
+            * **Scenario B:** The match ends 1 - 1 and Mexico advances on penalties.
+              * You predicted 1 - 1 and Mexico advances: You get **5 pts** (2 qualified + 2 score + 1 instance).
+              * You predicted 1 - 1 and Qatar advances: You get **3 pts** (2 score + 1 instance. Failed qualified).
+              * You predicted 0 - 0 and Mexico advances: You get **3 pts** (2 qualified + 1 instance. Failed score).
+              * You predicted Mexico 2 - 1 (wins without penalties): You get **2 pts** (Qualified only. No instance point because you didn't predict penalties).
+              * You predicted 0 - 0 and Qatar advances: You get **0 pts** (Golden Rule: failed score and qualified, so you lose the instance point).
+            * **Scenario C:** The match ends 2 - 2 and Qatar advances on penalties.
+              * You predicted Mexico 1 - 0: You get **0 pts**.
+              * You predicted Mexico 1 - 1 (Mexico advances): You get **0 pts** (Golden Rule: failed score and qualified).
             
             #### 3️⃣ Special Bets (Tournament)
             Before the first match of the World Cup begins, you must choose your long-term special bets.
@@ -1187,6 +1224,11 @@ if st.session_state.connected and st.session_state.user_email:
             * 🛠️ **Organization:** 10% (Administration and platform maintenance).
             
             *(Use the toggle on the Leaderboard to see the exclusive prize pool ranking).*
+            
+            #### 6️⃣ Important Notice and Contact
+            **Disclaimer:** Participation in the prize pool mode is **100% optional and voluntary**. There is no financial obligation to use this app; you can play completely for free just for fun and glory.
+            
+            📩 **Admin Contact:** If you decide to participate for the money prize pool, please contact the administrator via: **[PUT YOUR EMAIL OR WHATSAPP HERE]** to arrange payment and have your user enabled on the exclusive leaderboard.
             """)
 
     # --- 6. SEDES Y EQUIPOS ---
