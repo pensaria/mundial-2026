@@ -74,6 +74,8 @@ FECHAS_LIMITE = {
     "Final & 3rd place": datetime(2026, 7, 18, 19, 0, tzinfo=ZoneInfo("Europe/Sofia")),
 }
 
+fases_eliminatorias_list = ["16vos de final", "8vos de final", "4tos de final", "Semifinales", "Final y 3er puesto", "Round of 32", "Round of 16", "Quarter-finals", "Semi-finals", "Final & 3rd place"]
+
 @st.cache_resource
 def init_supabase():
     return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
@@ -101,6 +103,75 @@ def guardar_apuestas_especiales(email, camp, sub, ter, sorp, decep):
 def borrar_predicciones_jornada(user_email, partidos_ids):
     for pid in partidos_ids:
         supabase.table("predicciones").delete().eq("usuario", user_email).eq("partido_id", str(pid)).execute()
+
+def obtener_partidos_airtable():
+    try:
+        url = f"https://api.airtable.com/v0/{st.secrets['airtable']['base_id']}/Partidos"
+        headers = {"Authorization": f"Bearer {st.secrets['airtable']['api_key']}"}
+        params = {"view": "Grid view", "sort[0][field]": "ID Partido", "sort[0][direction]": "asc"} 
+        response = requests.get(url, headers=headers, params=params)
+        if response.status_code == 200:
+            partidos = []
+            for record in response.json()['records']:
+                f = record['fields']
+                g_raw = f.get("Grupo")
+                grupo_real = str(g_raw[0]).strip() if isinstance(g_raw, list) and g_raw else (str(g_raw).strip() if g_raw else "Definir")
+                r_l = f.get("Ranking FIFA (from Equipo Local)"); r_v = f.get("Ranking FIFA (from Equipo Visitante)")
+                partidos.append({
+                    "ID": f.get("ID Partido"), "Grupo": grupo_real, "Etapa": f.get("Etapa"),
+                    "Local_ES": f.get("Nombre (from Equipo Local)")[0] if isinstance(f.get("Nombre (from Equipo Local)"), list) else f.get("Nombre (from Equipo Local)"),
+                    "Local_EN": f.get("Nombre EN (from Equipo Local)")[0] if f.get("Nombre EN (from Equipo Local)") else f.get("Nombre (from Equipo Local)"),
+                    "Visitante_ES": f.get("Nombre (from Equipo Visitante)")[0] if isinstance(f.get("Nombre (from Equipo Visitante)"), list) else f.get("Nombre (from Equipo Visitante)"),
+                    "Visitante_EN": f.get("Nombre EN (from Equipo Visitante)")[0] if f.get("Nombre EN (from Equipo Visitante)") else f.get("Nombre (from Equipo Visitante)"),
+                    "Bandera_L": f.get("Bandera L")[0].get("url") if f.get("Bandera L") else "",
+                    "Bandera_V": f.get("Bandera V")[0].get("url") if f.get("Bandera V") else "",
+                    "Rank_L": int(r_l[0]) if isinstance(r_l, list) else int(r_l or 100),
+                    "Rank_V": int(r_v[0]) if isinstance(r_v, list) else int(r_v or 100),
+                    "FP_L": f.get("Fair Play L", 0), "FP_V": f.get("Fair Play V", 0),
+                    "Goles Real L": f.get("Goles Local"), "Goles Real V": f.get("Goles Visitante"),
+                    "Fecha_Hora": f.get("Fecha y Hora"), 
+                    "Jornada_ES": f.get("Jornada"), "Jornada_EN": f.get("Jornada EN")
+                })
+            return partidos
+        return []
+    except Exception as e:
+        st.error(f"Error Airtable: {e}"); return []
+
+def obtener_predicciones_usuario(user):
+    res = supabase.table("predicciones").select("*").eq("usuario", user).execute()
+    return {r['partido_id']: r for r in res.data}
+
+def guardar_prediccion_supabase(user, partido_id, gl, gv, avanza=None):
+    data = {"usuario": user, "partido_id": str(partido_id), "goles_local": gl, "goles_visitante": gv}
+    if avanza is not None:
+        data["avanza_penales"] = avanza
+    supabase.table("predicciones").upsert(data, on_conflict="usuario, partido_id").execute()
+
+def obtener_ranking_global(partidos):
+    res_preds = supabase.table("predicciones").select("*").execute()
+    puntos = {}
+    for p in res_preds.data:
+        user = p['usuario']
+        if user not in puntos: puntos[user] = 0
+        m = next((m for m in partidos if str(m['ID']) == p['partido_id']), None)
+        if m and m['Goles Real L'] is not None:
+            rl, rv, pl, pv = m['Goles Real L'], m['Goles Real V'], p['goles_local'], p['goles_visitante']
+            if rl == pl and rv == pv: puntos[user] += 4
+            elif (rl > rv and pl > pv) or (rl < rv and pl < pv) or (rl == rv and pl == pv): puntos[user] += 2
+            
+    try:
+        res_perfiles = supabase.table("perfiles").select("email, nombre_usuario, pago_confirmado").execute()
+        mapa_perfiles = {r['email']: {'nombre': r['nombre_usuario'], 'pago': r.get('pago_confirmado', False)} for r in res_perfiles.data}
+    except:
+        res_perfiles = supabase.table("perfiles").select("email, nombre_usuario").execute()
+        mapa_perfiles = {r['email']: {'nombre': r['nombre_usuario'], 'pago': False} for r in res_perfiles.data}
+    
+    lista_ranking = []
+    for k, v in puntos.items():
+        datos_perfil = mapa_perfiles.get(k, {'nombre': k, 'pago': False})
+        lista_ranking.append({"Usuario": datos_perfil['nombre'], "Puntos": v, "Pago": datos_perfil['pago']})
+        
+    return sorted(lista_ranking, key=lambda x: x['Puntos'], reverse=True)
 
 # --- DESCARGA DE FUENTE PARA PILLOW ---
 @st.cache_resource
@@ -163,85 +234,13 @@ def generar_ticket_jornada(username, jornada_nombre, predicciones, partidos):
     img_byte_arr = io.BytesIO(); img.save(img_byte_arr, format='PNG')
     return img_byte_arr.getvalue()
 
-def obtener_partidos_airtable():
-    try:
-        url = f"https://api.airtable.com/v0/{st.secrets['airtable']['base_id']}/Partidos"
-        headers = {"Authorization": f"Bearer {st.secrets['airtable']['api_key']}"}
-        params = {"view": "Grid view", "sort[0][field]": "ID Partido", "sort[0][direction]": "asc"} 
-        response = requests.get(url, headers=headers, params=params)
-        if response.status_code == 200:
-            partidos = []
-            for record in response.json()['records']:
-                f = record['fields']
-                g_raw = f.get("Grupo")
-                grupo_real = str(g_raw[0]).strip() if isinstance(g_raw, list) and g_raw else (str(g_raw).strip() if g_raw else "Definir")
-                r_l = f.get("Ranking FIFA (from Equipo Local)"); r_v = f.get("Ranking FIFA (from Equipo Visitante)")
-                partidos.append({
-                    "ID": f.get("ID Partido"), "Grupo": grupo_real, "Etapa": f.get("Etapa"),
-                    "Local_ES": f.get("Nombre (from Equipo Local)")[0] if isinstance(f.get("Nombre (from Equipo Local)"), list) else f.get("Nombre (from Equipo Local)"),
-                    "Local_EN": f.get("Nombre EN (from Equipo Local)")[0] if f.get("Nombre EN (from Equipo Local)") else f.get("Nombre (from Equipo Local)"),
-                    "Visitante_ES": f.get("Nombre (from Equipo Visitante)")[0] if isinstance(f.get("Nombre (from Equipo Visitante)"), list) else f.get("Nombre (from Equipo Visitante)"),
-                    "Visitante_EN": f.get("Nombre EN (from Equipo Visitante)")[0] if f.get("Nombre EN (from Equipo Visitante)") else f.get("Nombre (from Equipo Visitante)"),
-                    "Bandera_L": f.get("Bandera L")[0].get("url") if f.get("Bandera L") else "",
-                    "Bandera_V": f.get("Bandera V")[0].get("url") if f.get("Bandera V") else "",
-                    "Rank_L": int(r_l[0]) if isinstance(r_l, list) else int(r_l or 100),
-                    "Rank_V": int(r_v[0]) if isinstance(r_v, list) else int(r_v or 100),
-                    "FP_L": f.get("Fair Play L", 0), "FP_V": f.get("Fair Play V", 0),
-                    "Goles Real L": f.get("Goles Local"), "Goles Real V": f.get("Goles Visitante"),
-                    "Fecha_Hora": f.get("Fecha y Hora"), 
-                    "Jornada_ES": f.get("Jornada"), "Jornada_EN": f.get("Jornada EN")
-                })
-            return partidos
-        return []
-    except Exception as e:
-        st.error(f"Error Airtable: {e}"); return []
-
-def obtener_predicciones_usuario(user):
-    res = supabase.table("predicciones").select("*").eq("usuario", user).execute()
-    return {r['partido_id']: r for r in res.data}
-
-def guardar_prediccion_supabase(user, partido_id, gl, gv):
-    supabase.table("predicciones").upsert({"usuario": user, "partido_id": str(partido_id), "goles_local": gl, "goles_visitante": gv}, on_conflict="usuario, partido_id").execute()
-
-def obtener_ranking_global(partidos):
-    # 1. Traemos las predicciones
-    res_preds = supabase.table("predicciones").select("*").execute()
-    puntos = {}
-    for p in res_preds.data:
-        user = p['usuario']
-        if user not in puntos: puntos[user] = 0
-        m = next((m for m in partidos if str(m['ID']) == p['partido_id']), None)
-        if m and m['Goles Real L'] is not None:
-            rl, rv, pl, pv = m['Goles Real L'], m['Goles Real V'], p['goles_local'], p['goles_visitante']
-            if rl == pl and rv == pv: puntos[user] += 4
-            elif (rl > rv and pl > pv) or (rl < rv and pl < pv) or (rl == rv and pl == pv): puntos[user] += 2
-            
-    # 2. Traemos los perfiles para mapear Correo -> Nickname y estado de pago
-    try:
-        # Intenta traer pago_confirmado, si no existe la columna en supabase, la ignora sin fallar
-        res_perfiles = supabase.table("perfiles").select("email, nombre_usuario, pago_confirmado").execute()
-        mapa_perfiles = {r['email']: {'nombre': r['nombre_usuario'], 'pago': r.get('pago_confirmado', False)} for r in res_perfiles.data}
-    except:
-        res_perfiles = supabase.table("perfiles").select("email, nombre_usuario").execute()
-        mapa_perfiles = {r['email']: {'nombre': r['nombre_usuario'], 'pago': False} for r in res_perfiles.data}
-    
-    # 3. Construimos el ranking
-    lista_ranking = []
-    for k, v in puntos.items():
-        datos_perfil = mapa_perfiles.get(k, {'nombre': k, 'pago': False})
-        lista_ranking.append({"Usuario": datos_perfil['nombre'], "Puntos": v, "Pago": datos_perfil['pago']})
-        
-    return sorted(lista_ranking, key=lambda x: x['Puntos'], reverse=True)
-
 def render_equipo(nombre_es, nombre_en, url_bandera, lang_choice, align="left"):
     nombre = nombre_es if lang_choice == "Español" else (nombre_en or nombre_es)
     flex = "row" if align == "left" else "row-reverse"
-    # SOLUCIÓN DE BANDERAS: Aplicamos CSS object-fit: cover y un height/width estricto
     if not url_bandera:
         return f'<div style="display: flex; align-items: center; justify-content: {"flex-start" if align=="left" else "flex-end"}; flex-direction: {flex}; gap: 10px;"><span>{nombre}</span></div>'
     return f'<div style="display: flex; align-items: center; justify-content: {"flex-start" if align=="left" else "flex-end"}; flex-direction: {flex}; gap: 10px;"><img src="{url_bandera}" style="width: 30px; height: 20px; object-fit: cover; border-radius: 3px;"><span>{nombre}</span></div>'
 
-# --- FUNCIÓN PARA TABLAS SIN DEFORMAR BANDERAS CORREGIDA ---
 def render_html_table(df, styler_func=None):
     df_fmt = df.copy()
     if 'Flag' in df_fmt.columns:
@@ -355,12 +354,10 @@ if st.session_state.connected and st.session_state.user_email:
             if ranking: 
                 df_global_rank = pd.DataFrame(ranking)
                 
-                # Botón de filtro de pago
                 filtro_pago = st.toggle(t["toggle_paid"])
                 if filtro_pago:
                     df_global_rank = df_global_rank[df_global_rank['Pago'] == True]
                 
-                # Mostramos la tabla ocultando la columna interna "Pago" para mantenerlo limpio
                 if not df_global_rank.empty:
                     st.table(df_global_rank[['Usuario', 'Puntos']].reset_index(drop=True))
                 else:
@@ -400,7 +397,6 @@ if st.session_state.connected and st.session_state.user_email:
             st.subheader(t["nav_play"])
             preds = obtener_predicciones_usuario(st.session_state.user_email)
             
-            # --- APUESTAS ESPECIALES ---
             with st.expander(t["special_bets"], expanded=False):
                 zona_sofia = ZoneInfo("Europe/Sofia")
                 ahora = datetime.now(zona_sofia)
@@ -422,7 +418,7 @@ if st.session_state.connected and st.session_state.user_email:
                 lista_sorpresa = [""] + sorted([eq for eq, rank in dict_equipos.items() if rank > 10])
                 lista_decepcion = [""] + sorted([eq for eq, rank in dict_equipos.items() if rank <= 10])
                 
-                st.info("💡 **Puntos:** Campeón (10pts), Subcampeón (8pts), 3er Puesto (6pts). Sorpresa y Decepción (5pts).")
+                st.info("💡 **Puntos:** Campeón (10pts), Subcampeón (7pts), 3er Puesto (5pts). Sorpresa y Decepción (5pts).")
 
                 def get_idx(lst, val): return lst.index(val) if val in lst else 0
                 
@@ -455,7 +451,6 @@ if st.session_state.connected and st.session_state.user_email:
 
             st.divider()
 
-            # --- JORNADAS Y TIMER DICCIONARIO ---
             jornadas_fijas_es = ["Fecha 1", "Fecha 2", "Fecha 3", "16vos de final", "8vos de final", "4tos de final", "Semifinales", "Final y 3er puesto"]
             jornadas_fijas_en = ["Matchday 1", "Matchday 2", "Matchday 3", "Round of 32", "Round of 16", "Quarter-finals", "Semi-finals", "Final & 3rd place"]
             jornadas_list = jornadas_fijas_es if lang == "Español" else jornadas_fijas_en
@@ -463,7 +458,6 @@ if st.session_state.connected and st.session_state.user_email:
             c_j1, c_j2 = st.columns([2, 1])
             j_sel = c_j1.selectbox("Jornada / Matchday:", jornadas_list)
             
-            # CÁLCULO DEL RELOJ
             zona_sofia = ZoneInfo("Europe/Sofia")
             ahora = datetime.now(zona_sofia)
             limite_fecha = FECHAS_LIMITE.get(j_sel)
@@ -484,6 +478,8 @@ if st.session_state.connected and st.session_state.user_email:
             jornada_key = 'Jornada_ES' if lang == "Español" else 'Jornada_EN'
             partidos_jornada = [p for p in partidos_data if p.get(jornada_key) == j_sel]
             partidos_ordenados = sorted(partidos_jornada, key=lambda x: str(x['Grupo']))
+            
+            is_ko_stage = j_sel in fases_eliminatorias_list
 
             if not partidos_ordenados:
                 st.info("No hay partidos cargados para esta jornada." if lang == "Español" else "No matches loaded for this matchday.")
@@ -493,6 +489,9 @@ if st.session_state.connected and st.session_state.user_email:
                     with st.container(border=True):
                         st.caption(f"Grupo {p['Grupo']}")
                         c1, c2, c3, c4, c5 = st.columns([3, 1, 0.5, 1, 3])
+                        
+                        eq_l_name = p['Local_ES'] if lang == "Español" else p['Local_EN']
+                        eq_v_name = p['Visitante_ES'] if lang == "Español" else p['Visitante_EN']
                         
                         with c1: st.markdown(render_equipo(p['Local_ES'], p['Local_EN'], p['Bandera_L'], lang), unsafe_allow_html=True)
                         
@@ -504,11 +503,29 @@ if st.session_state.connected and st.session_state.user_email:
                         gv = c4.number_input("V", 0, 20, v_v, key=f"v_{p['ID']}", label_visibility="collapsed", disabled=bloqueado_por_tiempo)
                         
                         with c5: st.markdown(render_equipo(p['Visitante_ES'], p['Visitante_EN'], p['Bandera_V'], lang, align="right"), unsafe_allow_html=True)
+                        
+                        if is_ko_stage:
+                            st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+                            v_avanza = preds.get(str(p['ID']), {}).get('avanza_penales', eq_l_name)
+                            if v_avanza not in [eq_l_name, eq_v_name]: v_avanza = eq_l_name
+                            
+                            st.selectbox(
+                                "✅ Avanza (solo válido si pronosticas empate) / Advances (only if tie):", 
+                                [eq_l_name, eq_v_name], 
+                                index=[eq_l_name, eq_v_name].index(v_avanza), 
+                                key=f"avanza_{p['ID']}", 
+                                disabled=bloqueado_por_tiempo
+                            )
                 
                 col_b1, col_b2 = st.columns(2)
                 if col_b1.form_submit_button(t["save_btn"], use_container_width=True, disabled=bloqueado_por_tiempo):
                     for p in partidos_jornada:
-                        guardar_prediccion_supabase(st.session_state.user_email, p['ID'], st.session_state[f"l_{p['ID']}"], st.session_state[f"v_{p['ID']}"])
+                        gl_val = st.session_state[f"l_{p['ID']}"]
+                        gv_val = st.session_state[f"v_{p['ID']}"]
+                        avanza_val = None
+                        if is_ko_stage and gl_val == gv_val:
+                            avanza_val = st.session_state.get(f"avanza_{p['ID']}")
+                        guardar_prediccion_supabase(st.session_state.user_email, p['ID'], gl_val, gv_val, avanza_val)
                     st.success("¡Pronósticos guardados correctamente!" if lang == "Español" else "Predictions saved successfully!")
                     st.balloons()
                 
@@ -516,18 +533,16 @@ if st.session_state.connected and st.session_state.user_email:
                     borrar_predicciones_jornada(st.session_state.user_email, [p['ID'] for p in partidos_jornada])
                     st.rerun()
 
-            # BOTÓN DESCARGAR TICKET DE JORNADA
             with st.expander(t["my_ticket_j"]):
                 if st.button(t["gen_ticket"] + " " + j_sel):
                     img_data = generar_ticket_jornada(username_display, j_sel, preds, partidos_jornada)
                     st.image(img_data)
                     st.download_button(label=t["download_ticket"], data=img_data, file_name=f"ticket_{j_sel}_{username_display}.png", mime="image/png", type="primary")
 
-    # --- 2.5 MIS PRONÓSTICOS (NUEVA SECCIÓN INDEPENDIENTE) ---
+    # --- 2.5 MIS PRONÓSTICOS ---
     elif menu == t["nav_my_preds"]:
         st.subheader(t["nav_my_preds"])
         
-        # --- APUESTAS ESPECIALES VISIBLES ---
         st.markdown(f"#### 🌟 {t['special_bets']}")
         if perfil_actual:
             c_s1, c_s2, c_s3 = st.columns(3)
@@ -554,7 +569,6 @@ if st.session_state.connected and st.session_state.user_email:
         puntos_totales_jornada = 0
         partidos_filtrados = partidos_data if j_filtro == txt_todas else [p for p in partidos_data if p.get('Jornada_ES' if lang=="Español" else 'Jornada_EN') == j_filtro]
         
-        # Filtramos solo los que el usuario sí predijo
         partidos_con_pred = [p for p in partidos_filtrados if str(p['ID']) in preds]
         
         if not partidos_con_pred:
@@ -565,6 +579,7 @@ if st.session_state.connected and st.session_state.user_email:
                 pl, pv = pred['goles_local'], pred['goles_visitante']
                 rl, rv = p['Goles Real L'], p['Goles Real V']
                 eq_l, eq_v = p['Local_ES'] if lang=="Español" else p['Local_EN'], p['Visitante_ES'] if lang=="Español" else p['Visitante_EN']
+                avanza_pred = pred.get('avanza_penales')
                 
                 puntos_obtenidos = 0
                 bg_color = "rgba(0,0,0,0.02)"
@@ -572,10 +587,10 @@ if st.session_state.connected and st.session_state.user_email:
                 if rl is not None and rv is not None:
                     if rl == pl and rv == pv:
                         puntos_obtenidos = 4
-                        bg_color = "rgba(46, 204, 113, 0.15)" # Verde acierto exacto
+                        bg_color = "rgba(46, 204, 113, 0.15)"
                     elif (rl > rv and pl > pv) or (rl < rv and pl < pv) or (rl == rv and pl == pv):
                         puntos_obtenidos = 2
-                        bg_color = "rgba(241, 196, 15, 0.15)" # Amarillo acierto ganador
+                        bg_color = "rgba(241, 196, 15, 0.15)"
                 
                 puntos_totales_jornada += puntos_obtenidos
                 
@@ -583,13 +598,16 @@ if st.session_state.connected and st.session_state.user_email:
                 flag_v_img = f"<img src='{p['Bandera_V']}' style='width: 24px; height: 16px; object-fit: cover; border-radius: 2px;'>" if p['Bandera_V'] else ""
 
                 html_card = f"<div style='background-color: {bg_color}; border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 10px;'>"
-                html_card += f"<div style='font-size: 16px; font-weight: bold; display: flex; align-items: center; gap: 8px;'>{flag_l_img} <span>{eq_l} &nbsp;&nbsp;{pl} - {pv}&nbsp;&nbsp; {eq_v}</span> {flag_v_img} <span style='color: gray; font-size:12px; font-weight: normal; margin-left:10px;'>(Tu pronóstico)</span></div>"
+                html_card += f"<div style='font-size: 16px; font-weight: bold; display: flex; align-items: center; gap: 8px; justify-content: center;'>{flag_l_img} <span>{eq_l} &nbsp;&nbsp;{pl} - {pv}&nbsp;&nbsp; {eq_v}</span> {flag_v_img} <span style='color: gray; font-size:12px; font-weight: normal; margin-left:10px;'>(Tu pronóstico)</span></div>"
+                
+                if pl == pv and avanza_pred:
+                    html_card += f"<div style='font-size: 13px; color: #e67e22; text-align: center; margin-top: 4px;'><b>Avanza / Advances:</b> {avanza_pred}</div>"
                 
                 if rl is not None and rv is not None:
-                    html_card += f"<div style='font-size: 14px; margin-top:8px; display: flex; align-items: center; gap: 8px;'>{flag_l_img} <span>{eq_l} &nbsp;&nbsp;{rl} - {rv}&nbsp;&nbsp; {eq_v}</span> {flag_v_img} <span style='color: gray; font-size:12px; margin-left:10px;'>(Realidad)</span></div>"
-                    html_card += f"<div style='margin-top: 8px; font-weight: bold; color: {'#27ae60' if puntos_obtenidos > 0 else '#e74c3c'};'>✅ Puntos Obtenidos: {puntos_obtenidos}</div>"
+                    html_card += f"<div style='font-size: 14px; margin-top:8px; display: flex; align-items: center; gap: 8px; justify-content: center;'>{flag_l_img} <span>{eq_l} &nbsp;&nbsp;{rl} - {rv}&nbsp;&nbsp; {eq_v}</span> {flag_v_img} <span style='color: gray; font-size:12px; margin-left:10px;'>(Realidad)</span></div>"
+                    html_card += f"<div style='margin-top: 8px; font-weight: bold; text-align: center; color: {'#27ae60' if puntos_obtenidos > 0 else '#e74c3c'};'>✅ Puntos Obtenidos: {puntos_obtenidos}</div>"
                 else:
-                    html_card += f"<div style='font-size: 14px; color: gray; margin-top:5px;'>Partido aún no disputado</div>"
+                    html_card += f"<div style='font-size: 14px; color: gray; margin-top:5px; text-align: center;'>Partido aún no disputado</div>"
                 
                 html_card += "</div>"
                 st.markdown(html_card, unsafe_allow_html=True)
@@ -1078,30 +1096,48 @@ if st.session_state.connected and st.session_state.user_email:
             
             Bienvenido al Prode Mundial 2026. A continuación se detallan las reglas oficiales del juego para evitar cualquier confusión.
             
-            #### 1️⃣ Puntajes por Partido (Fase de Grupos y Eliminatorias)
+            #### 1️⃣ Puntajes por Partido (Fase de Grupos)
             En cada partido podrás predecir el resultado exacto (Goles Local vs Goles Visitante). Los puntos se otorgan de la siguiente manera:
             * **4 Puntos (Acierto Exacto):** Si aciertas el resultado exacto del partido. *(Ejemplo: Pronosticas 2-1 y el partido termina 2-1).*
             * **2 Puntos (Acierto de Tendencia):** Si aciertas qué equipo gana, o si aciertas que será un empate, pero fallas en los goles exactos. *(Ejemplo: Pronosticas 2-0 pero el partido termina 3-1).*
             * **0 Puntos:** Si fallas tanto el resultado como el ganador/empate.
             
-            #### 2️⃣ Apuestas Especiales (Torneo)
+            #### 2️⃣ Fases Eliminatorias (De 16vos en adelante)
+            El puntaje se basa en el resultado final del encuentro (incluyendo prórroga) y el desenlace de la clasificación.
+            * **Acierto de Clasificado (+2 pts):** Por acertar qué equipo avanza a la siguiente ronda.
+            * **Acierto de Marcador Exacto (+2 pts):** Por acertar la cantidad de goles de cada equipo al finalizar el tiempo de juego (90' o 120').
+            * **Acierto de Instancia (+1 pt):** Por acertar si el partido se define en cancha (No Penales) o desde los doce pasos (Penales).
+            * **⭐ Regla de Oro:** El punto por "Instancia" solo se suma si el jugador ha acertado al menos una de las otras dos categorías (Clasificado o Marcador Exacto). Si falla ambas, suma 0 puntos.
+            
+            #### 3️⃣ Apuestas Especiales (Torneo)
             Antes de que comience el primer partido del Mundial, deberás elegir tus apuestas especiales a largo plazo.
-            * **🏆 Campeón:** 10 Puntos.
-            * **🥈 Subcampeón:** 8 Puntos.
-            * **🥉 Tercer Puesto:** 6 Puntos.
-            * **🚀 Equipo Sorpresa:** 5 Puntos. (Solo puedes elegir equipos que estén **fuera del Top 10** del Ranking FIFA actual).
-            * **📉 Equipo Decepción:** 5 Puntos. (Solo puedes elegir equipos que estén **dentro del Top 10** del Ranking FIFA actual).
+            * Acierto exacto del Campeón: **10 puntos.**
+            * Acierto exacto del Subcampeón: **7 puntos.**
+            * Acierto exacto del 3er Puesto: **5 puntos.**
+            * *Bonus de podio:* Si el equipo que pusiste en uno de estos tres puestos finaliza dentro del podio (1º, 2º o 3º) pero no en la posición exacta que le asignaste, sumas **2 puntos de consuelo**.
+            * **Equipo Sorpresa (Fuera del Top 10 FIFA):** **5 puntos.**
+            * **Equipo Decepción (Dentro del Top 10 FIFA):** **5 puntos.**
             
             *(Nota: No está permitido elegir al mismo equipo para Campeón, Subcampeón y Tercer puesto al mismo tiempo).*
             
-            #### 3️⃣ Cierre de Jornadas (Tiempos Límite)
-            * Las predicciones para cada jornada se pueden modificar libremente hasta **la hora exacta de inicio del primer partido** de esa ronda.
-            * Las **Apuestas Especiales** se bloquearán definitivamente cuando comience el *Matchday 1* (Fecha 1) del Mundial.
-            * Una vez que el tiempo expira, los campos se deshabilitan y ya no podrás guardar cambios para esa ronda.
+            #### 4️⃣ Cierre de Jornadas (Tiempos Límite)
+            Los pronósticos de cada ronda se bloquean automáticamente en el servidor en los siguientes horarios (Hora de Sofía, Bulgaria):
+            * **Apuestas Especiales y Fecha 1:** 11/06/2026 a las 17:00 hs *(5 horas antes del partido inaugural)*.
+            * **Fecha 2:** 18/06/2026 a las 14:00 hs.
+            * **Fecha 3:** 24/06/2026 a las 17:00 hs.
+            * **16vos de final:** Abre el 28/06 a las 8:00 hs | Cierra el 28/06 a las 17:00 hs.
+            * **8vos de final:** Abre el 04/07 a las 8:00 hs | Cierra el 04/07 a las 15:00 hs.
+            * **4tos de final:** Abre el 08/07 a las 2:00 hs | Cierra el 09/07 a las 18:00 hs.
+            * **Semifinales:** Abre el 12/07 a las 7:00 hs | Cierra el 14/07 a las 17:00 hs.
+            * **Final y 3er Puesto:** Abre el 16/07 a las 1:00 hs | Cierra el 18/07 a las 19:00 hs.
             
-            #### 4️⃣ Modalidad con Premio (Pozo Opcional)
-            * Este sistema permite filtrar la tabla de posiciones general para mostrar únicamente a los participantes que han aportado al pozo (modalidad por dinero).
-            * Si deseas participar por el pozo, por favor contacta al administrador del torneo para que habilite tu usuario en el sistema de pago.
+            #### 5️⃣ Modalidad por Dinero (Pozo Acumulado)
+            El torneo cuenta con un pozo opcional para quienes deseen participar por dinero. La distribución del premio total acumulado será la siguiente:
+            * 🥇 **1º Lugar:** 70% del pozo.
+            * 🥈 **2º Lugar:** 20% del pozo.
+            * 🛠️ **Organización:** 10% (Administración y mantenimiento de la plataforma).
+            
+            *(Usa el interruptor en la Tabla de Posiciones para ver el ranking exclusivo del pozo).*
             """)
         else:
             st.markdown("""
@@ -1109,30 +1145,48 @@ if st.session_state.connected and st.session_state.user_email:
             
             Welcome to the 2026 World Cup Predictor. Below are the official rules of the game to avoid any confusion.
             
-            #### 1️⃣ Match Scoring (Group Stage and Knockouts)
+            #### 1️⃣ Match Scoring (Group Stage)
             For each match, you can predict the exact score (Home Goals vs Away Goals). Points are awarded as follows:
             * **4 Points (Exact Score):** If you guess the exact final score of the match. *(Example: You predict 2-1 and the match ends 2-1).*
-            * **2 Points (Correct Result):** If you guess which team wins, or if you correctly guess a tie, but fail the exact goals. *(Example: You predict 2-0 but the match ends 3-1).*
+            * **2 Points (Correct Trend):** If you guess which team wins, or if you correctly guess a tie, but fail the exact goals. *(Example: You predict 2-0 but the match ends 3-1).*
             * **0 Points:** If you fail both the result and the winner/tie.
             
-            #### 2️⃣ Special Bets (Tournament)
+            #### 2️⃣ Knockout Stages (Round of 32 onwards)
+            Score is based on the final result of the match (including extra time) and the advancing team.
+            * **Qualified (+2 pts):** Guess which team advances to the next round.
+            * **Exact Score (+2 pts):** Guess the exact goals of each team at the end of playtime (90' or 120').
+            * **Instance (+1 pt):** Guess if the match is decided on the pitch (No Penalties) or by shootout (Penalties).
+            * **⭐ Golden Rule:** The "Instance" point is only awarded if you also guessed the Qualifier OR the Exact Score correctly. If you fail both, you get 0 points.
+            
+            #### 3️⃣ Special Bets (Tournament)
             Before the first match of the World Cup begins, you must choose your long-term special bets.
-            * **🏆 Champion:** 10 Points.
-            * **🥈 Runner-up:** 8 Points.
-            * **🥉 Third Place:** 6 Points.
-            * **🚀 Surprise Team:** 5 Points. (You can only choose teams that are **outside the Top 10** of the current FIFA Ranking).
-            * **📉 Disappointment Team:** 5 Points. (You can only choose teams that are **inside the Top 10** of the current FIFA Ranking).
+            * Exact Champion: **10 points.**
+            * Exact Runner-up: **7 points.**
+            * Exact Third Place: **5 points.**
+            * *Podium Bonus:* If your chosen team finishes in the top 3 (1st, 2nd, or 3rd) but not in the exact position you guessed, you get **2 consolation points**.
+            * **Surprise Team (Outside FIFA Top 10):** **5 points.**
+            * **Disappointment Team (Inside FIFA Top 10):** **5 points.**
             
             *(Note: You are not allowed to choose the same team for Champion, Runner-up, and Third place at the same time).*
             
-            #### 3️⃣ Matchday Deadlines
-            * Predictions for each matchday can be freely modified until **the exact start time of the first match** of that round.
-            * **Special Bets** will be permanently locked when *Matchday 1* begins.
-            * Once the time expires, the input fields are disabled and you will no longer be able to save changes for that round.
+            #### 4️⃣ Matchday Deadlines
+            Predictions are automatically locked on the server at the following times (Sofia, Bulgaria Time):
+            * **Special Bets & Matchday 1:** 11/06/2026 at 17:00 hrs *(5 hours before opening match)*.
+            * **Matchday 2:** 18/06/2026 at 14:00 hrs.
+            * **Matchday 3:** 24/06/2026 at 17:00 hrs.
+            * **Round of 32:** Opens 28/06 at 8:00 hrs | Closes 28/06 at 17:00 hrs.
+            * **Round of 16:** Opens 04/07 at 8:00 hrs | Closes 04/07 at 15:00 hrs.
+            * **Quarter-finals:** Opens 08/07 at 2:00 hrs | Closes 09/07 at 18:00 hrs.
+            * **Semi-finals:** Opens 12/07 at 7:00 hrs | Closes 14/07 at 17:00 hrs.
+            * **Final & 3rd Place:** Opens 16/07 at 1:00 hrs | Closes 18/07 at 19:00 hrs.
             
-            #### 4️⃣ Prize Pool Mode (Optional)
-            * This system allows you to filter the general leaderboard to show only the participants who have contributed to the prize pool.
-            * If you wish to participate in the prize pool, please contact the tournament administrator to enable your user in the payment system.
+            #### 5️⃣ Prize Pool Mode (Accumulated)
+            The tournament features an optional prize pool for those who wish to participate for money. The total accumulated prize distribution will be:
+            * 🥇 **1st Place:** 70% of the pool.
+            * 🥈 **2nd Place:** 20% of the pool.
+            * 🛠️ **Organization:** 10% (Administration and platform maintenance).
+            
+            *(Use the toggle on the Leaderboard to see the exclusive prize pool ranking).*
             """)
 
     # --- 6. SEDES Y EQUIPOS ---
