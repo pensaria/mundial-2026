@@ -16,7 +16,7 @@ st.set_page_config(page_title="Mundial 2026", page_icon="⚽", layout="wide")
 texts = {
     "Español": {
         "nav_home": "🏠 Inicio", "nav_play": "⚽ Jugar Prode", "nav_my_preds": "🎯 Mis Pronósticos", "nav_results": "🏆 Resultados",
-        "nav_sim": "📊 Simulador", "nav_stadiums": "🏟️ Sedes y Equipos", "title": "🏆 Prode Mundial 2026",
+        "nav_sim": "📊 Simulador", "nav_stadiums": "🏟️ Sedes y Equipos", "nav_rules": "📜 Reglamento", "title": "🏆 Prode Mundial 2026",
         "ranking_title": "📊 Tabla de Posiciones", "next_matches": "📅 Próximos Partidos",
         "no_matches": "🏆 ¡El Mundial ha terminado!", "save_btn": "Guardar Pronósticos",
         "time_left": "⏳ Tiempo restante:", "closed": "🔒 Jornada Cerrada", "online": "✅ Conectado",
@@ -30,11 +30,12 @@ texts = {
         "save_user": "Comenzar a Jugar", "reset_btn": "Reiniciar Jornada 🗑️",
         "lock_msg": "⚠️ El tiempo para esta jornada ha expirado. La edición está bloqueada.",
         "my_ticket": "🎟️ Ticket Apuestas Especiales", "my_ticket_j": "🎟️ Ticket de esta Jornada",
-        "gen_ticket": "Generar Imagen", "download_ticket": "Descargar Ticket 📥"
+        "gen_ticket": "Generar Imagen", "download_ticket": "Descargar Ticket 📥",
+        "toggle_paid": "💰 Ver solo participantes por el pozo"
     },
     "English": {
         "nav_home": "🏠 Home", "nav_play": "⚽ Play Predictor", "nav_my_preds": "🎯 My Predictions", "nav_results": "🏆 Results",
-        "nav_sim": "📊 Simulator", "nav_stadiums": "🏟️ Stadiums & Teams", "title": "🏆 2026 World Cup Predictor",
+        "nav_sim": "📊 Simulator", "nav_stadiums": "🏟️ Stadiums & Teams", "nav_rules": "📜 Rules", "title": "🏆 2026 World Cup Predictor",
         "ranking_title": "📊 Leaderboard", "next_matches": "📅 Upcoming Matches",
         "no_matches": "🏆 The World Cup has ended!", "save_btn": "Save Predictions",
         "time_left": "⏳ Time left:", "closed": "🔒 Round Closed", "online": "✅ Online",
@@ -48,7 +49,8 @@ texts = {
         "save_user": "Start Playing", "reset_btn": "Reset Matchday 🗑️",
         "lock_msg": "⚠️ Time's up for this matchday. Editing is locked.",
         "my_ticket": "🎟️ Special Bets Ticket", "my_ticket_j": "🎟️ Matchday Ticket",
-        "gen_ticket": "Generate Image", "download_ticket": "Download Ticket 📥"
+        "gen_ticket": "Generate Image", "download_ticket": "Download Ticket 📥",
+        "toggle_paid": "💰 Show only prize pool participants"
     }
 }
 
@@ -214,15 +216,20 @@ def obtener_ranking_global(partidos):
             if rl == pl and rv == pv: puntos[user] += 4
             elif (rl > rv and pl > pv) or (rl < rv and pl < pv) or (rl == rv and pl == pv): puntos[user] += 2
             
-    # 2. Traemos los perfiles para mapear Correo -> Nickname
-    res_perfiles = supabase.table("perfiles").select("email, nombre_usuario").execute()
-    mapa_nombres = {r['email']: r['nombre_usuario'] for r in res_perfiles.data}
+    # 2. Traemos los perfiles para mapear Correo -> Nickname y estado de pago
+    try:
+        # Intenta traer pago_confirmado, si no existe la columna en supabase, la ignora sin fallar
+        res_perfiles = supabase.table("perfiles").select("email, nombre_usuario, pago_confirmado").execute()
+        mapa_perfiles = {r['email']: {'nombre': r['nombre_usuario'], 'pago': r.get('pago_confirmado', False)} for r in res_perfiles.data}
+    except:
+        res_perfiles = supabase.table("perfiles").select("email, nombre_usuario").execute()
+        mapa_perfiles = {r['email']: {'nombre': r['nombre_usuario'], 'pago': False} for r in res_perfiles.data}
     
-    # 3. Construimos el ranking usando el Nickname (o el correo si no tiene)
+    # 3. Construimos el ranking
     lista_ranking = []
     for k, v in puntos.items():
-        nombre_visible = mapa_nombres.get(k, k)
-        lista_ranking.append({"Usuario": nombre_visible, "Puntos": v})
+        datos_perfil = mapa_perfiles.get(k, {'nombre': k, 'pago': False})
+        lista_ranking.append({"Usuario": datos_perfil['nombre'], "Puntos": v, "Pago": datos_perfil['pago']})
         
     return sorted(lista_ranking, key=lambda x: x['Puntos'], reverse=True)
 
@@ -327,7 +334,7 @@ if st.session_state.connected and st.session_state.user_email:
     username_display = perfil_actual['nombre_usuario']
     st.sidebar.write(f"⚽ {t['user_welcome']}**{username_display}**!")
 
-    menu = st.sidebar.radio("Menu", [t["nav_home"], t["nav_play"], t["nav_my_preds"], t["nav_results"], t["nav_sim"], t["nav_stadiums"]])
+    menu = st.sidebar.radio("Menu", [t["nav_home"], t["nav_play"], t["nav_my_preds"], t["nav_results"], t["nav_sim"], t["nav_stadiums"], t["nav_rules"]])
     
     modo_juego = st.sidebar.radio("Modo / Mode", [t["mode_simple"], t["mode_complex"]])
     if st.sidebar.button(t["logout"]): 
@@ -347,7 +354,17 @@ if st.session_state.connected and st.session_state.user_email:
             ranking = obtener_ranking_global(partidos_data)
             if ranking: 
                 df_global_rank = pd.DataFrame(ranking)
-                st.table(df_global_rank)
+                
+                # Botón de filtro de pago
+                filtro_pago = st.toggle(t["toggle_paid"])
+                if filtro_pago:
+                    df_global_rank = df_global_rank[df_global_rank['Pago'] == True]
+                
+                # Mostramos la tabla ocultando la columna interna "Pago" para mantenerlo limpio
+                if not df_global_rank.empty:
+                    st.table(df_global_rank[['Usuario', 'Puntos']].reset_index(drop=True))
+                else:
+                    st.info("Nadie en el pozo aún." if lang == "Español" else "No paid participants yet.")
             else: 
                 st.info("Aún no hay puntos." if lang == "Español" else "No points yet.")
 
@@ -1051,7 +1068,74 @@ if st.session_state.connected and st.session_state.user_email:
                         with c_i: st.markdown("#### 🥉 3er Puesto"); render_sim_ko_match("M103", ko_lose.get("M101", "L101"), ko_lose.get("M102", "L102"))
                         with c_d: st.markdown("#### 🏆 Gran Final"); render_sim_ko_match("M104", ko_win.get("M101", "W101"), ko_win.get("M102", "W102"))
 
-    # --- 5. SEDES Y EQUIPOS ---
+    # --- 5. REGLAMENTO ---
+    elif menu == t["nav_rules"]:
+        st.subheader(t["nav_rules"])
+        
+        if lang == "Español":
+            st.markdown("""
+            ### 📜 Instrucciones y Puntuación
+            
+            Bienvenido al Prode Mundial 2026. A continuación se detallan las reglas oficiales del juego para evitar cualquier confusión.
+            
+            #### 1️⃣ Puntajes por Partido (Fase de Grupos y Eliminatorias)
+            En cada partido podrás predecir el resultado exacto (Goles Local vs Goles Visitante). Los puntos se otorgan de la siguiente manera:
+            * **4 Puntos (Acierto Exacto):** Si aciertas el resultado exacto del partido. *(Ejemplo: Pronosticas 2-1 y el partido termina 2-1).*
+            * **2 Puntos (Acierto de Tendencia):** Si aciertas qué equipo gana, o si aciertas que será un empate, pero fallas en los goles exactos. *(Ejemplo: Pronosticas 2-0 pero el partido termina 3-1).*
+            * **0 Puntos:** Si fallas tanto el resultado como el ganador/empate.
+            
+            #### 2️⃣ Apuestas Especiales (Torneo)
+            Antes de que comience el primer partido del Mundial, deberás elegir tus apuestas especiales a largo plazo.
+            * **🏆 Campeón:** 10 Puntos.
+            * **🥈 Subcampeón:** 8 Puntos.
+            * **🥉 Tercer Puesto:** 6 Puntos.
+            * **🚀 Equipo Sorpresa:** 5 Puntos. (Solo puedes elegir equipos que estén **fuera del Top 10** del Ranking FIFA actual).
+            * **📉 Equipo Decepción:** 5 Puntos. (Solo puedes elegir equipos que estén **dentro del Top 10** del Ranking FIFA actual).
+            
+            *(Nota: No está permitido elegir al mismo equipo para Campeón, Subcampeón y Tercer puesto al mismo tiempo).*
+            
+            #### 3️⃣ Cierre de Jornadas (Tiempos Límite)
+            * Las predicciones para cada jornada se pueden modificar libremente hasta **la hora exacta de inicio del primer partido** de esa ronda.
+            * Las **Apuestas Especiales** se bloquearán definitivamente cuando comience el *Matchday 1* (Fecha 1) del Mundial.
+            * Una vez que el tiempo expira, los campos se deshabilitan y ya no podrás guardar cambios para esa ronda.
+            
+            #### 4️⃣ Modalidad con Premio (Pozo Opcional)
+            * Este sistema permite filtrar la tabla de posiciones general para mostrar únicamente a los participantes que han aportado al pozo (modalidad por dinero).
+            * Si deseas participar por el pozo, por favor contacta al administrador del torneo para que habilite tu usuario en el sistema de pago.
+            """)
+        else:
+            st.markdown("""
+            ### 📜 Instructions and Scoring
+            
+            Welcome to the 2026 World Cup Predictor. Below are the official rules of the game to avoid any confusion.
+            
+            #### 1️⃣ Match Scoring (Group Stage and Knockouts)
+            For each match, you can predict the exact score (Home Goals vs Away Goals). Points are awarded as follows:
+            * **4 Points (Exact Score):** If you guess the exact final score of the match. *(Example: You predict 2-1 and the match ends 2-1).*
+            * **2 Points (Correct Result):** If you guess which team wins, or if you correctly guess a tie, but fail the exact goals. *(Example: You predict 2-0 but the match ends 3-1).*
+            * **0 Points:** If you fail both the result and the winner/tie.
+            
+            #### 2️⃣ Special Bets (Tournament)
+            Before the first match of the World Cup begins, you must choose your long-term special bets.
+            * **🏆 Champion:** 10 Points.
+            * **🥈 Runner-up:** 8 Points.
+            * **🥉 Third Place:** 6 Points.
+            * **🚀 Surprise Team:** 5 Points. (You can only choose teams that are **outside the Top 10** of the current FIFA Ranking).
+            * **📉 Disappointment Team:** 5 Points. (You can only choose teams that are **inside the Top 10** of the current FIFA Ranking).
+            
+            *(Note: You are not allowed to choose the same team for Champion, Runner-up, and Third place at the same time).*
+            
+            #### 3️⃣ Matchday Deadlines
+            * Predictions for each matchday can be freely modified until **the exact start time of the first match** of that round.
+            * **Special Bets** will be permanently locked when *Matchday 1* begins.
+            * Once the time expires, the input fields are disabled and you will no longer be able to save changes for that round.
+            
+            #### 4️⃣ Prize Pool Mode (Optional)
+            * This system allows you to filter the general leaderboard to show only the participants who have contributed to the prize pool.
+            * If you wish to participate in the prize pool, please contact the tournament administrator to enable your user in the payment system.
+            """)
+
+    # --- 6. SEDES Y EQUIPOS ---
     elif menu == t["nav_stadiums"]:
         st.subheader(t["nav_stadiums"])
         st.info("Próximamente / Coming Soon")
