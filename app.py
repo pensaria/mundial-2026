@@ -262,12 +262,40 @@ def asignar_terceros(grupos_terceros):
     res = resolver(0, grupos_terceros, [])
     return dict(res) if res else None
 
-# --- SESIÓN ---
+# --- SESIÓN E INTERCAMBIO OAUTH REAL DE GOOGLE ---
 if "connected" not in st.session_state: st.session_state.connected = False
-if "code" in st.query_params: st.session_state.connected = True
-if "user_email" not in st.session_state: st.session_state.user_email = "usuario_prueba@gmail.com"
+if "user_email" not in st.session_state: st.session_state.user_email = None
 
-if st.session_state.connected:
+# Procesamos el código de retorno si Google nos redirige
+if "code" in st.query_params and not st.session_state.connected:
+    auth_code = st.query_params["code"]
+    try:
+        # Intercambiamos el código de la URL por tokens reales de Google
+        token_url = "https://oauth2.googleapis.com/token"
+        token_data = {
+            "code": auth_code,
+            "client_id": st.secrets["google_oauth"]["client_id"],
+            "client_secret": st.secrets["google_oauth"]["client_secret"],
+            "redirect_uri": st.secrets["google_oauth"]["redirect_uri"],
+            "grant_type": "authorization_code"
+        }
+        token_res = requests.post(token_url, data=token_data).json()
+        access_token = token_res.get("access_token")
+        
+        if access_token:
+            # Consultamos los datos reales del perfil usando el token obtenido
+            user_info = requests.get("https://www.googleapis.com/oauth2/v2/userinfo", headers={"Authorization": f"Bearer {access_token}"}).json()
+            email_detectado = user_info.get("email")
+            if email_detectado:
+                st.session_state.user_email = email_detectado
+                st.session_state.connected = True
+                # Limpiamos el código de la barra de direcciones para estética
+                st.query_params.clear()
+                st.rerun()
+    except Exception as e:
+        st.error(f"Error de autenticación OAuth: {e}")
+
+if st.session_state.connected and st.session_state.user_email:
     lang = st.sidebar.selectbox("🌐 Language", ["Español", "English"])
     t = texts[lang]
     partidos_data = obtener_partidos_airtable()
@@ -286,11 +314,15 @@ if st.session_state.connected:
     username_display = perfil_actual['nombre_usuario']
     st.sidebar.write(f"⚽ {t['user_welcome']}**{username_display}**!")
 
-    # Agregamos "Mis Pronósticos" al menú
+    # Menú principal de navegación
     menu = st.sidebar.radio("Menu", [t["nav_home"], t["nav_play"], t["nav_my_preds"], t["nav_results"], t["nav_sim"], t["nav_stadiums"]])
     
     modo_juego = st.sidebar.radio("Modo / Mode", [t["mode_simple"], t["mode_complex"]])
-    if st.sidebar.button(t["logout"]): st.session_state.connected = False; st.rerun()
+    if st.sidebar.button(t["logout"]): 
+        st.session_state.connected = False
+        st.session_state.user_email = None
+        st.query_params.clear()
+        st.rerun()
 
     st.title(t["title"])
 
@@ -302,7 +334,9 @@ if st.session_state.connected:
             st.subheader(t["ranking_title"])
             ranking = obtener_ranking_global(partidos_data)
             if ranking: 
-                st.table(pd.DataFrame(ranking))
+                # Agregamos una verificación visual si deseas filtrar
+                df_global_rank = pd.DataFrame(ranking)
+                st.table(df_global_rank)
             else: 
                 st.info("Aún no hay puntos." if lang == "Español" else "No points yet.")
 
@@ -340,7 +374,6 @@ if st.session_state.connected:
             
             # --- APUESTAS ESPECIALES ---
             with st.expander(t["special_bets"], expanded=False):
-                # Verificación de bloqueo por tiempo para apuestas especiales
                 zona_sofia = ZoneInfo("Europe/Sofia")
                 ahora = datetime.now(zona_sofia)
                 limite_especiales = FECHAS_LIMITE.get("Fecha 1" if lang == "Español" else "Matchday 1")
@@ -354,7 +387,6 @@ if st.session_state.connected:
                 for p in partidos_data:
                     eq_l = p['Local_ES'] if lang == "Español" else p['Local_EN']
                     eq_v = p['Visitante_ES'] if lang == "Español" else p['Visitante_EN']
-                    # Filtramos nulos o vacíos para que sorted() no explote
                     if eq_l and str(eq_l).strip() != "" and str(eq_l) != "None": dict_equipos[eq_l] = p['Rank_L']
                     if eq_v and str(eq_v).strip() != "" and str(eq_v) != "None": dict_equipos[eq_v] = p['Rank_V']
                 
