@@ -1224,7 +1224,7 @@ if st.session_state.connected and st.session_state.user_email:
             #### 6️⃣ Aviso Importante y Contacto
             **Aviso Legal:** La participación en la modalidad de pozo es **100% opcional y voluntaria**. No existe ninguna obligación financiera para usar esta aplicación; puedes jugar totalmente gratis solo por diversión y honor.
             
-            📩 **Contacto del Administrador:** Si decides participar por el pozo de dinero, comunícate con el administrador a través de: **[PON TU CORREO O WHATSAPP AQUÍ]** para coordinar el pago y que tu usuario sea habilitado en la tabla exclusiva.
+            📩 **Contacto del Administrador:** Si decides participar por el pozo de dinero, comunícate con el administrador a través de: **adminprode2026@gmail.com** para coordinar el pago y que tu usuario sea habilitado en la tabla exclusiva.
             """)
         else:
             st.markdown("""
@@ -1294,7 +1294,7 @@ if st.session_state.connected and st.session_state.user_email:
             #### 6️⃣ Important Notice and Contact
             **Disclaimer:** Participation in the prize pool mode is **100% optional and voluntary**. There is no financial obligation to use this app; you can play completely for free just for fun and glory.
             
-            📩 **Admin Contact:** If you decide to participate for the money prize pool, please contact the administrator via: **[PUT YOUR EMAIL OR WHATSAPP HERE]** to arrange payment and have your user enabled on the exclusive leaderboard.
+            📩 **Admin Contact:** If you decide to participate for the money prize pool, please contact the administrator via: **adminprode2026@gmail.com** to arrange payment and have your user enabled on the exclusive leaderboard.
             """)
 
     # --- 6. SEDES Y EQUIPOS ---
